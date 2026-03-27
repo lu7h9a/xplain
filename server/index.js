@@ -241,16 +241,18 @@ Learner profile:
 - preferred style: ${learner.preferredStyle}
 - interest: ${learner.interest || "general"}
 - language: ${learner.language || "English"}
-- confusion pattern: ${learner.confusionPattern || "not provided"}
-- previous behavior: ${learner.previousBehavior || "not provided"}
 
 Lesson rules:
 - Teach in the learner's chosen language.
-- Use the learner's interest where useful.
+- Use the learner's interest only inside the child/elementary explanation and child-friendly examples. Do not weave it into intermediate or advanced explanations.
 - Sound like a patient teacher, not a chatbot.
 - Include foundation, core idea, how it works, real-world example, and summary.
+- Make the explanation rich enough to genuinely teach the topic completely, not just define it.
+- Make each stage body detailed, content-rich, and roughly 90-140 words.
 - Include learning modes for analogy, stepByStep, and realLife.
 - Include level explanations for child, beginner, and expert.
+- Include 5 flashcards for revision.
+- Include 4 MCQ quiz questions with exactly 4 options each, a correctAnswer index, and a reteach hint.
 - Include exactly 3 adaptive tips, 3 confusion hotspots, and 3 check-in questions.
 
 Return JSON with this exact shape:
@@ -271,9 +273,7 @@ Return JSON with this exact shape:
     "mood": "string",
     "preferredStyle": "string",
     "interest": "string",
-    "language": "string",
-    "confusionPattern": "string",
-    "previousBehavior": "string"
+    "language": "string"
   },
   "stages": [
     { "id": "foundation", "title": "Foundation", "body": "string" },
@@ -292,6 +292,18 @@ Return JSON with this exact shape:
     "beginner": "string",
     "expert": "string"
   },
+  "flashcards": [
+    { "front": "string", "back": "string" }
+  ],
+  "quizQuestions": [
+    {
+      "id": "string",
+      "prompt": "string",
+      "options": ["string", "string", "string", "string"],
+      "correctAnswer": 0,
+      "hint": "string"
+    }
+  ],
   "adaptiveTips": ["string", "string", "string"],
   "confusionHotspots": ["string", "string", "string"],
   "checkInQuestions": ["string", "string", "string"]
@@ -304,6 +316,7 @@ Additional teaching context:
 `.trim();
 }
 async function generateLessonWithGemini({ topic, customTopic, learner }) {
+  const prompt = buildLessonPrompt({ topic, customTopic, learner });
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
     {
@@ -367,6 +380,8 @@ function normalizeLesson(rawLesson, { topic, customTopic, learner }) {
       beginner: rawLesson?.levelExplanations?.beginner || `Explain ${subject} from zero and build up step by step.`,
       expert: rawLesson?.levelExplanations?.expert || `Explain ${subject} with deeper technical nuance and assumptions.`,
     },
+    flashcards: normalizeFlashcards(rawLesson?.flashcards, subject),
+    quizQuestions: normalizeQuizQuestions(rawLesson?.quizQuestions, subject),
     adaptiveTips: ensureTextArray(rawLesson?.adaptiveTips, 3, "Pause after each stage and explain it back in one sentence."),
     confusionHotspots: ensureTextArray(rawLesson?.confusionHotspots, 3, `Learners often remember the name of ${subject} before they understand the mechanism.`),
     checkInQuestions: ensureTextArray(rawLesson?.checkInQuestions, 3, `What is the main job of ${subject}?`),
@@ -401,6 +416,95 @@ function ensureTextArray(value, count, fallback) {
   return items.slice(0, count);
 }
 
+function normalizeFlashcards(flashcards, subject) {
+  const items = Array.isArray(flashcards)
+    ? flashcards
+        .filter((item) => item && typeof item.front === "string" && typeof item.back === "string")
+        .map((item) => ({ front: item.front.trim(), back: item.back.trim() }))
+        .filter((item) => item.front && item.back)
+    : [];
+
+  const fallback = [
+    { front: `What is ${subject}?`, back: `${subject} becomes easier when you first define its purpose and the problem it solves.` },
+    { front: `Why does ${subject} matter?`, back: `${subject} matters because understanding it helps you predict how a system or idea behaves.` },
+    { front: `What is the core mechanism of ${subject}?`, back: `Track what goes in, what changes in the middle, and what comes out at the end.` },
+    { front: `How do you explain ${subject} clearly?`, back: `Use one analogy, one step-by-step process, and one practical example.` },
+    { front: `How should you revise ${subject}?`, back: `Remember it as purpose -> parts -> process -> real-world result.` },
+  ];
+
+  return items.length ? items.slice(0, 5) : fallback;
+}
+
+function normalizeQuizQuestions(quizQuestions, subject) {
+  const items = Array.isArray(quizQuestions)
+    ? quizQuestions
+        .filter((item) => item && typeof item.prompt === "string" && Array.isArray(item.options))
+        .map((item, index) => ({
+          id: item.id || `q${index + 1}`,
+          prompt: item.prompt.trim(),
+          options: item.options.slice(0, 4).map((option) => String(option).trim()),
+          correctAnswer: Number.isInteger(item.correctAnswer) ? item.correctAnswer : 0,
+          hint: typeof item.hint === "string" && item.hint.trim()
+            ? item.hint.trim()
+            : `Revisit the purpose and mechanism of ${subject} before retrying this question.`,
+        }))
+        .filter((item) => item.prompt && item.options.length === 4)
+    : [];
+
+  const fallback = [
+    {
+      id: "q1",
+      prompt: `Which answer best captures the main purpose of ${subject}?`,
+      options: [
+        `It explains the job and outcome of ${subject}.`,
+        "It only introduces hard words.",
+        "It removes the need for examples.",
+        "It avoids describing the process.",
+      ],
+      correctAnswer: 0,
+      hint: `Restart with the purpose of ${subject} before worrying about advanced details.`,
+    },
+    {
+      id: "q2",
+      prompt: `What should a strong explanation of ${subject} include?`,
+      options: [
+        "Only the final answer",
+        "Purpose, mechanism, and example",
+        "Only history",
+        "Only formulas",
+      ],
+      correctAnswer: 1,
+      hint: `Use Eggzy's teaching chain: purpose -> mechanism -> real-life example.`,
+    },
+    {
+      id: "q3",
+      prompt: `When a learner hesitates on ${subject}, what should Eggzy do?`,
+      options: [
+        "Skip the topic",
+        "Reteach the confusing part more clearly",
+        "Hide the explanation",
+        "Remove the quiz",
+      ],
+      correctAnswer: 1,
+      hint: `Hesitation is a signal to slow down and reteach, not to move on.`,
+    },
+    {
+      id: "q4",
+      prompt: `Which revision move helps lock in ${subject}?`,
+      options: [
+        "Memorize one sentence only",
+        "Use flashcards and teach it back",
+        "Ignore examples",
+        "Avoid reviewing weak spots",
+      ],
+      correctAnswer: 1,
+      hint: `Revision gets stronger when recall practice and teach-back work together.`,
+    },
+  ];
+
+  return items.length ? items.slice(0, 4) : fallback;
+}
+
 function buildAdaptiveLesson(topic, learner) {
   const tone = getMoodTone(learner.mood);
   const styleLens = getStyleLens(learner.preferredStyle);
@@ -432,19 +536,19 @@ function buildAdaptiveLesson(topic, learner) {
       {
         id: "core",
         title: "Core Idea",
-        body: `${styleLens.coreFraming} ${topic.coreIdea}${learner.interest ? ` Connect it to ${learner.interest}.` : ""}`,
+        body: `${styleLens.coreFraming} ${topic.coreIdea}`,
       },
       { id: "how", title: "How It Works", body: `${levelGuide.processHint} ${topic.howItWorks}` },
       { id: "example", title: "Real-World Example", body: `${styleLens.exampleLead} ${topic.realWorldExample}` },
       { id: "summary", title: "Summary", body: `${tone.memoryCue} ${topic.summary}` },
     ],
     learningModes: {
-      analogy: `${styleLens.beginnerLead} ${topic.beginnerAnalogy || topic.childAnalogy} Tie it to ${learner.interest || "everyday life"} so it feels familiar.`,
+      analogy: `${styleLens.beginnerLead} ${topic.childAnalogy || topic.beginnerAnalogy}`,
       stepByStep: `${levelGuide.processHint} ${topic.howItWorks}`,
       realLife: `${styleLens.exampleLead} ${topic.realWorldExample}`,
     },
     levelExplanations: {
-      child: `${tone.encouragement} ${topic.title} is easiest to picture this way: ${topic.childAnalogy} ${topic.foundation} ${topic.realWorldExample}`,
+      child: `${tone.encouragement} ${topic.title} is easiest to picture this way: ${topic.childAnalogy} ${topic.foundation} ${topic.realWorldExample} Tie that example to ${learner.interest || "everyday life"}.`,
       beginner: `${styleLens.beginnerLead} ${topic.coreIdea} ${topic.beginnerAnalogy} ${topic.howItWorks}`,
       expert: `${levelGuide.expertLead} ${topic.coreIdea} ${topic.expertNuance} ${topic.howItWorks}`,
     },
@@ -499,12 +603,12 @@ function buildCustomLesson(customTopic, learner) {
       { id: "summary", title: "Summary", body: `${tone.memoryCue} Learn the purpose, walk through the steps, then test it with an example.` },
     ],
     learningModes: {
-      analogy: `${styleLens.beginnerLead} Think of ${subject} through ${learner.interest || "a familiar daily-life analogy"}.`,
+      analogy: `${styleLens.beginnerLead} Think of ${subject} through one simple mental picture.`,
       stepByStep: `${levelGuide.processHint} Move through ${subject} as input, transformation, and output.`,
       realLife: `${styleLens.exampleLead} Put ${subject} into a practical situation connected to ${learner.interest || "daily life"}.`,
     },
     levelExplanations: {
-      child: `${tone.encouragement} Think of ${subject} like a tool with a special job. First we learn what job it does, then we see the steps, then we try an example.`,
+      child: `${tone.encouragement} Think of ${subject} like a tool with a special job. First we learn what job it does, then we see the steps, then we try an example linked to ${learner.interest || "everyday life"}.`,
       beginner: `${styleLens.beginnerLead} To understand ${subject}, start with the problem it solves, then map the process from start to finish, and finally test it with one real situation.`,
       expert: `${levelGuide.expertLead} A robust explanation of ${subject} should identify system boundaries, mechanisms, dependencies, and failure modes.`,
     },
@@ -652,6 +756,11 @@ function tokenize(text) {
     .split(/\s+/)
     .filter((token) => token.length > 2);
 }
+
+
+
+
+
 
 
 
