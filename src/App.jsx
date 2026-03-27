@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const DEFAULT_TOPICS = [
@@ -19,15 +20,16 @@ const DEFAULT_TOPICS = [
 ];
 
 const LEVELS = [
-  { id: "child", label: "Elementary", sublabel: "Ages 6-10", accent: "#B5935A", description: "Simple language, vivid analogies" },
-  { id: "beginner", label: "Foundational", sublabel: "No prior knowledge", accent: "#3D7A6B", description: "Structured, jargon-free clarity" },
-  { id: "expert", label: "Advanced", sublabel: "Domain expertise", accent: "#2C3E6B", description: "Technical depth and nuance" },
+  { id: "child", label: "Elementary", sublabel: "Ages 6-10", accent: "var(--sun)", description: "Simple language, vivid analogies" },
+  { id: "beginner", label: "Foundational", sublabel: "No prior knowledge", accent: "var(--lime)", description: "Structured, jargon-free clarity" },
+  { id: "expert", label: "Advanced", sublabel: "Domain expertise", accent: "var(--sky)", description: "Technical depth and nuance" },
 ];
 
 const MOODS = ["focused", "curious", "overwhelmed", "tired"];
 const STYLES = ["analogy", "story", "technical", "simple"];
 
 export default function App() {
+  const [theme, setTheme] = useState("dark");
   const [concept, setConcept] = useState("");
   const [topics, setTopics] = useState(DEFAULT_TOPICS);
   const [activeLevel, setActiveLevel] = useState("beginner");
@@ -50,15 +52,17 @@ export default function App() {
   const resultsRef = useRef(null);
 
   useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
     void loadTopics();
   }, []);
 
   async function loadTopics() {
     try {
       const res = await fetch("/api/topics");
-      if (!res.ok) {
-        throw new Error("Topic API unavailable");
-      }
+      if (!res.ok) throw new Error("Topic API unavailable");
       const data = await res.json();
       setTopics(data.topics?.length ? data.topics : DEFAULT_TOPICS);
     } catch {
@@ -68,7 +72,6 @@ export default function App() {
 
   async function handleExplain() {
     if (!concept.trim()) return;
-
     setError("");
     setFeedback(null);
     setLoading(true);
@@ -90,16 +93,14 @@ export default function App() {
           previousBehavior,
         }),
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to generate lesson");
-
       setSessionId(data.sessionId);
       setLesson(data.lesson);
       setLearnerExplanation("");
       setConfusionArea("");
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
-    } catch (err) {
+    } catch {
       const fallbackLesson = createLocalLesson({
         topic: matchedTopic || { title: concept.trim(), category: "Custom", shortSummary: `A guided explanation for ${concept.trim()}.` },
         learnerLevel: activeLevel,
@@ -112,7 +113,7 @@ export default function App() {
       setLesson(fallbackLesson);
       setLearnerExplanation("");
       setConfusionArea("");
-      setError("Live API unavailable, showing local demo mode.");
+      setError("Live API unavailable, showing Eggsy demo mode.");
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
     } finally {
       setLoading(false);
@@ -121,20 +122,13 @@ export default function App() {
 
   async function handleFeedbackSubmit() {
     if (!sessionId) return;
-
     setFeedbackLoading(true);
     try {
       const res = await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          understood,
-          learnerExplanation,
-          confusionArea,
-        }),
+        body: JSON.stringify({ sessionId, understood, learnerExplanation, confusionArea }),
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unable to save feedback");
       setFeedback(data);
@@ -149,244 +143,164 @@ export default function App() {
   const activeLevelText = useMemo(() => lesson?.levelExplanations?.[activeLevel] || "", [lesson, activeLevel]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "radial-gradient(circle at top left, rgba(181,147,90,0.18), transparent 28%), linear-gradient(180deg, #F6F3EE 0%, #F3EEE5 100%)", color: "#0F0F1A" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,700&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #F6F3EE; }
-        button, input, textarea, select { font: inherit; }
-        .chip { background: rgba(255,255,255,0.72); border: 1px solid #CEC9C2; border-radius: 999px; padding: 8px 14px; font-size: 12px; color: #5C574C; cursor: pointer; transition: all 0.18s; }
-        .chip:hover { background: #EDE9E2; color: #0F0F1A; border-color: #A8A099; transform: translateY(-1px); }
-        .tab-btn { background: none; border: none; cursor: pointer; text-align: left; padding: 18px 0; transition: all 0.2s; flex: 1; }
-        .tab-btn:hover .tab-title { color: #0F0F1A !important; }
-        .fade-up { animation: fadeUp 0.45s ease forwards; }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);} }
-        .card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-        @media (max-width: 920px) { .card-grid { grid-template-columns: 1fr; } }
-        @media (max-width: 720px) {
-          .hero-grid { grid-template-columns: 1fr !important; }
-          .levels-grid { grid-template-columns: 1fr !important; }
-          .top-row { flex-direction: column; align-items: flex-start !important; gap: 14px; }
-          .panel { padding: 26px !important; }
-          .responsive-stack { flex-direction: column; }
-        }
-      `}</style>
-
-      <div style={{ maxWidth: "1180px", margin: "0 auto", padding: "44px 24px 100px", fontFamily: "'DM Sans', sans-serif" }}>
-        <nav className="top-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "56px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ width: "28px", height: "28px", background: "#0F0F1A", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span style={{ color: "#B5935A", fontSize: "15px", fontFamily: "'Cormorant Garamond', serif" }}>L</span>
-            </div>
-            <span style={{ fontSize: "12px", letterSpacing: "0.14em", textTransform: "uppercase", color: "#0F0F1A", fontWeight: 700 }}>
-              Learn Your <span style={{ color: "#B5935A" }}>Way</span>
-            </span>
-          </div>
-          <span style={{ fontSize: "11px", letterSpacing: "0.12em", textTransform: "uppercase", color: "#8E877B", fontWeight: 500 }}>Understanding Engine</span>
-        </nav>
-
-        <section className="hero-grid" style={{ display: "grid", gridTemplateColumns: "1.25fr 0.95fr", gap: "28px", marginBottom: "34px" }}>
-          <div style={heroLeftCard}>
-            <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "clamp(46px, 6vw, 78px)", fontWeight: 300, lineHeight: 1.02, letterSpacing: "-0.03em", marginBottom: "18px" }}>
-              We do not just answer.
-              <br />
-              <em style={{ color: "#B5935A" }}>We help you understand.</em>
-            </h1>
-            <p style={{ fontSize: "16px", color: "#6B655A", lineHeight: 1.8, maxWidth: "620px", fontWeight: 300 }}>
-              Adaptive AI-powered learning platform that explains the same concept at multiple levels, tracks confusion patterns, checks understanding, and nudges the learner like a thoughtful teacher.
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "24px" }}>
-              <span className="chip" style={{ cursor: "default" }}>15 seeded topics</span>
-              <span className="chip" style={{ cursor: "default" }}>Layered explanations</span>
-              <span className="chip" style={{ cursor: "default" }}>Reverse teaching</span>
-              <span className="chip" style={{ cursor: "default" }}>Adaptive retries</span>
-            </div>
-          </div>
-
-          <div style={heroRightCard}>
+    <div className="app-shell">
+      <style>{styles}</style>
+      <div className="background-orb orb-one" />
+      <div className="background-orb orb-two" />
+      <div className="page-frame">
+        <header className="topbar">
+          <div className="brand-wrap">
+            <div className="brand-chip"><EggsyMascot theme={theme} compact /></div>
             <div>
-              <div style={eyebrowDark}>What makes it different</div>
-              <div style={{ display: "grid", gap: "14px" }}>
-                {[
-                  "Diagnoses learning gaps instead of only dumping information",
-                  "Learns from user mood, style preference, and past confusion patterns",
-                  "Ends each lesson with a teach-back loop and coaching response",
-                ].map((item) => (
-                  <div key={item} style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-                    <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#B5935A", marginTop: "7px" }} />
-                    <p style={{ color: "#DDD2C4", lineHeight: 1.65, fontSize: "14px" }}>{item}</p>
-                  </div>
-                ))}
-              </div>
+              <div className="brand-title">Eggsy</div>
+              <div className="brand-subtitle">Your cheerful concept coach</div>
             </div>
-            <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid rgba(255,255,255,0.12)" }}>
-              <div style={{ color: "#F6F3EE", fontSize: "24px", fontFamily: "'Cormorant Garamond', serif" }}>“We learn how the learner learns.”</div>
+          </div>
+          <button className="theme-toggle" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>
+            <span>{theme === "dark" ? "Dark Quest" : "Sunny Quest"}</span>
+            <span>{theme === "dark" ? "Moon On" : "Sun On"}</span>
+          </button>
+        </header>
+        <section className="hero-panel">
+          <div className="hero-copy">
+            <div className="pill-row">
+              <span className="pill">Eggsy Mode</span>
+              <span className="pill pill-green">15 topic starter pack</span>
+              <span className="pill pill-blue">Dark-mode ready</span>
+            </div>
+            <h1>Meet Eggsy, the tiny tutor that turns confusion into streaks.</h1>
+            <p>
+              The experience now leans into a playful, rounded learning style inspired by modern language-learning apps: bold cards, clear progress cues, friendly copy, and a mascot that reacts beautifully in dark mode.
+            </p>
+            <div className="hero-stats">
+              <StatCard value="3" label="Explanation levels" />
+              <StatCard value="5" label="Lesson stages" />
+              <StatCard value="15" label="Built-in topics" />
+            </div>
+          </div>
+          <div className="hero-mascot-card">
+            <div className="mascot-badge">Mascot online</div>
+            <EggsyMascot theme={theme} />
+            <div className="mascot-caption">
+              <strong>Eggsy adapts with the theme.</strong>
+              <span>Soft shell in light mode, moonlit shell and brighter yolk glow in dark mode.</span>
             </div>
           </div>
         </section>
 
-        <section style={sectionCard}>
-          <div className="card-grid" style={{ marginBottom: "18px" }}>
-            <Field label="Learner name"><input value={learnerName} onChange={(event) => setLearnerName(event.target.value)} placeholder="Optional" style={inputStyle} /></Field>
-            <Field label="Current mental state">
-              <select value={mood} onChange={(event) => setMood(event.target.value)} style={inputStyle}>
-                {MOODS.map((option) => <option key={option} value={option}>{capitalize(option)}</option>)}
-              </select>
-            </Field>
-            <Field label="Preferred explanation style">
-              <select value={preferredStyle} onChange={(event) => setPreferredStyle(event.target.value)} style={inputStyle}>
-                {STYLES.map((option) => <option key={option} value={option}>{capitalize(option)}</option>)}
-              </select>
-            </Field>
-            <Field label="Known confusion pattern"><input value={confusionPattern} onChange={(event) => setConfusionPattern(event.target.value)} placeholder="Example: loses track during multi-step processes" style={inputStyle} /></Field>
-          </div>
-          <Field label="Previous learning behavior">
-            <textarea value={previousBehavior} onChange={(event) => setPreviousBehavior(event.target.value)} placeholder="Example: understands analogies quickly but gets lost in formulas" rows={3} style={{ ...inputStyle, resize: "vertical" }} />
-          </Field>
+        <section className="mission-strip">
+          <div className="mission-card lime"><span className="mission-eyebrow">How it feels</span><strong>Playful, bold, and guided</strong><p>Rounded surfaces, strong contrast, supportive microcopy, and big-action buttons.</p></div>
+          <div className="mission-card yellow"><span className="mission-eyebrow">How it teaches</span><strong>Step by step, never overwhelming</strong><p>Foundation first, then process, then example, then a teach-back loop.</p></div>
+          <div className="mission-card blue"><span className="mission-eyebrow">How it adapts</span><strong>Mood-aware and level-aware</strong><p>The lesson path changes with learner mood, explanation style, and confidence.</p></div>
         </section>
 
-        <section style={sectionCard}>
-          <label style={labelStyle}>Choose a concept</label>
-          <div style={{ display: "flex", border: `1px solid ${inputFocused ? "#0F0F1A" : "#CEC9C2"}`, borderRadius: "16px", background: "#FFFFFF", transition: "border-color 0.2s, box-shadow 0.2s", boxShadow: inputFocused ? "0 8px 24px rgba(15,15,26,0.09)" : "0 3px 10px rgba(15,15,26,0.04)" }}>
+        <section className="panel profile-panel">
+          <div className="section-heading"><span className="eyebrow">Learner Setup</span><h2>Tell Eggsy how you learn best</h2></div>
+          <div className="grid two-up">
+            <Field label="Learner name"><input className="input" value={learnerName} onChange={(event) => setLearnerName(event.target.value)} placeholder="Optional" /></Field>
+            <Field label="Current mental state"><select className="input" value={mood} onChange={(event) => setMood(event.target.value)}>{MOODS.map((option) => <option key={option} value={option}>{capitalize(option)}</option>)}</select></Field>
+            <Field label="Preferred explanation style"><select className="input" value={preferredStyle} onChange={(event) => setPreferredStyle(event.target.value)}>{STYLES.map((option) => <option key={option} value={option}>{capitalize(option)}</option>)}</select></Field>
+            <Field label="Known confusion pattern"><input className="input" value={confusionPattern} onChange={(event) => setConfusionPattern(event.target.value)} placeholder="Example: loses track during multi-step processes" /></Field>
+          </div>
+          <Field label="Previous learning behavior"><textarea className="input textarea" value={previousBehavior} onChange={(event) => setPreviousBehavior(event.target.value)} placeholder="Example: understands analogies quickly but gets lost in formulas" rows={3} /></Field>
+        </section>
+
+        <section className="panel concept-panel">
+          <div className="section-heading"><span className="eyebrow">Choose A Concept</span><h2>Pick a topic and let Eggsy hatch a lesson</h2></div>
+          <div className={`input-shell ${inputFocused ? "focused" : ""}`}>
             <input
               ref={inputRef}
+              className="concept-input"
               value={concept}
               onChange={(event) => setConcept(event.target.value)}
               onKeyDown={(event) => event.key === "Enter" && void handleExplain()}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
               placeholder="Pick one of the 15 predefined topics or type your own concept"
-              style={{ ...inputStyle, flex: 1, border: "none", background: "transparent", padding: "17px 18px" }}
             />
-            <button onClick={() => void handleExplain()} disabled={!concept.trim() || loading} style={{ padding: "0 26px", background: concept.trim() && !loading ? "#0F0F1A" : "#EDE9E2", color: concept.trim() && !loading ? "#F6F3EE" : "#A8A099", border: "none", borderRadius: "0 15px 15px 0", fontSize: "11px", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, cursor: concept.trim() && !loading ? "pointer" : "not-allowed" }}>
-              {loading ? "Generating..." : "Build lesson"}
-            </button>
+            <button className="cta-button" onClick={() => void handleExplain()} disabled={!concept.trim() || loading}>{loading ? "Hatching..." : "Teach Me"}</button>
           </div>
-
-          <div style={{ marginTop: "16px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+          <div className="topic-grid">
             {topics.map((topic) => (
-              <button key={topic.slug} className="chip" onClick={() => { setConcept(topic.title); inputRef.current?.focus(); }}>
-                {topic.title}
+              <button key={topic.slug} className="topic-chip" onClick={() => { setConcept(topic.title); inputRef.current?.focus(); }}>
+                <span>{topic.title}</span><small>{topic.category}</small>
               </button>
             ))}
           </div>
         </section>
 
-        <section className="levels-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "18px", marginBottom: lesson ? "26px" : "36px" }}>
+        <section className="level-grid">
           {LEVELS.map((level) => (
-            <button key={level.id} onClick={() => setActiveLevel(level.id)} style={{ background: activeLevel === level.id ? "#FFFFFF" : "rgba(255,255,255,0.58)", border: `1px solid ${activeLevel === level.id ? level.accent : "#DDD8D0"}`, borderRadius: "20px", padding: "24px", textAlign: "left", cursor: "pointer", boxShadow: activeLevel === level.id ? "0 10px 28px rgba(15,15,26,0.08)" : "none" }}>
-              <div style={{ width: "34px", height: "3px", background: level.accent, marginBottom: "16px", borderRadius: "99px" }} />
-              <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>{level.label}</div>
-              <div style={{ fontSize: "11px", color: "#8B8476", marginBottom: "10px" }}>{level.sublabel}</div>
-              <div style={{ fontSize: "13px", lineHeight: 1.6, color: "#5F594F" }}>{level.description}</div>
+            <button key={level.id} className={`level-card ${activeLevel === level.id ? "active" : ""}`} onClick={() => setActiveLevel(level.id)}>
+              <div className="level-bar" style={{ background: level.accent }} />
+              <strong>{level.label}</strong>
+              <span>{level.sublabel}</span>
+              <p>{level.description}</p>
             </button>
           ))}
         </section>
 
-        {error ? <div style={{ padding: "14px 18px", background: "#FDF0F0", border: "1px solid #E8C4C4", borderRadius: "14px", color: "#843A3A", fontSize: "13px", marginBottom: "24px" }}>{error}</div> : null}
+        {error ? <div className="error-banner">{error}</div> : null}
 
         {lesson ? (
-          <div ref={resultsRef} className="fade-up" style={{ display: "grid", gap: "26px" }}>
-            <section style={mainLessonCard}>
-              <div className="responsive-stack" style={{ display: "flex", justifyContent: "space-between", gap: "20px", marginBottom: "18px" }}>
-                <div>
-                  <div style={{ fontSize: "11px", letterSpacing: "0.14em", textTransform: "uppercase", color: currentLevel?.accent, fontWeight: 700, marginBottom: "8px" }}>{lesson.topic.title} · {currentLevel?.label}</div>
-                  <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "42px", fontWeight: 400, lineHeight: 1.02, marginBottom: "12px" }}>Personalized lesson path</h2>
-                  <p style={{ maxWidth: "720px", fontSize: "15px", lineHeight: 1.8, color: "#5F594F" }}>{lesson.topic.shortSummary}</p>
-                </div>
-                <div style={snapshotCard}>
-                  <div style={sectionEyebrowStyle}>Learner snapshot</div>
-                  <MetaLine label="Level" value={capitalize(lesson.learnerSnapshot.level)} />
-                  <MetaLine label="Mood" value={capitalize(lesson.learnerSnapshot.mood)} />
-                  <MetaLine label="Style" value={capitalize(lesson.learnerSnapshot.preferredStyle)} />
-                </div>
-              </div>
-
-              <div style={{ borderTop: "1px solid #EEE7DD", paddingTop: "22px", marginTop: "10px" }}>
-                <div style={{ display: "flex", borderBottom: "1px solid #DDD8D0", gap: "28px" }}>
-                  {LEVELS.map((level) => {
-                    const isActive = activeLevel === level.id;
-                    return (
-                      <button key={level.id} className="tab-btn" onClick={() => setActiveLevel(level.id)} style={{ borderBottom: isActive ? `2px solid ${level.accent}` : "2px solid transparent", marginBottom: "-1px", paddingBottom: "16px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
-                          <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: isActive ? level.accent : "#CFC7BD" }} />
-                          <div>
-                            <div className="tab-title" style={{ fontSize: "13px", fontWeight: 700, color: isActive ? "#0F0F1A" : "#A8A099" }}>{level.label}</div>
-                            <div style={{ fontSize: "10px", color: "#B8B2AA", marginTop: "2px" }}>{level.sublabel}</div>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="panel" style={{ marginTop: "24px", background: "#FDFCFA", border: "1px solid #E6E0D6", borderLeft: `4px solid ${currentLevel?.accent}`, borderRadius: "0 20px 20px 0", padding: "34px 38px" }}>
-                  <div style={{ fontSize: "11px", letterSpacing: "0.14em", textTransform: "uppercase", color: currentLevel?.accent, marginBottom: "12px", fontWeight: 700 }}>Active explanation</div>
-                  <p style={{ fontSize: "16px", lineHeight: 1.95, color: "#272634", whiteSpace: "pre-wrap" }}>{activeLevelText}</p>
-                </div>
+          <div ref={resultsRef} className="lesson-stack">
+            <section className="panel lesson-hero">
+              <div><span className="eyebrow">Current Mission</span><h2>{lesson.topic.title}</h2><p>{lesson.topic.shortSummary}</p></div>
+              <div className="snapshot-card">
+                <span className="eyebrow">Learner snapshot</span>
+                <div className="snapshot-line"><span>Level</span><strong>{capitalize(lesson.learnerSnapshot.level)}</strong></div>
+                <div className="snapshot-line"><span>Mood</span><strong>{capitalize(lesson.learnerSnapshot.mood)}</strong></div>
+                <div className="snapshot-line"><span>Style</span><strong>{capitalize(lesson.learnerSnapshot.preferredStyle)}</strong></div>
               </div>
             </section>
 
-            <section className="card-grid">
+            <section className="panel active-explainer">
+              <div className="tabs">
+                {LEVELS.map((level) => (
+                  <button key={level.id} className={`tab ${activeLevel === level.id ? "active" : ""}`} onClick={() => setActiveLevel(level.id)}>
+                    <span className="dot" style={{ background: level.accent }} />
+                    <div><strong>{level.label}</strong><small>{level.sublabel}</small></div>
+                  </button>
+                ))}
+              </div>
+              <div className="explanation-card" style={{ borderColor: currentLevel?.accent }}><span className="eyebrow">{currentLevel?.label} explanation</span><p>{activeLevelText}</p></div>
+            </section>
+            <section className="grid lesson-stage-grid">
               {lesson.stages.map((stage) => (
-                <div key={stage.id} style={secondaryCardStyle}>
-                  <div style={sectionEyebrowStyle}>{stage.title}</div>
-                  <p style={{ color: "#514C42", lineHeight: 1.8, fontSize: "15px" }}>{stage.body}</p>
-                </div>
+                <article key={stage.id} className="stage-card"><span className="eyebrow">{stage.title}</span><p>{stage.body}</p></article>
               ))}
             </section>
 
-            <section className="card-grid">
-              <div style={secondaryCardStyle}>
-                <div style={sectionEyebrowStyle}>Confusion hotspots</div>
-                <div style={{ display: "grid", gap: "10px" }}>{lesson.confusionHotspots.map((item) => <div key={item} style={listItemStyle}>{item}</div>)}</div>
-              </div>
-              <div style={secondaryCardStyle}>
-                <div style={sectionEyebrowStyle}>Adaptive coaching</div>
-                <div style={{ display: "grid", gap: "10px" }}>{lesson.adaptiveTips.map((item) => <div key={item} style={listItemStyle}>{item}</div>)}</div>
-              </div>
+            <section className="grid two-up">
+              <article className="panel info-panel"><span className="eyebrow">Confusion hotspots</span><div className="bullet-stack">{lesson.confusionHotspots.map((item) => <div key={item} className="bullet-card">{item}</div>)}</div></article>
+              <article className="panel info-panel"><span className="eyebrow">Adaptive coaching</span><div className="bullet-stack">{lesson.adaptiveTips.map((item) => <div key={item} className="bullet-card">{item}</div>)}</div></article>
             </section>
 
-            <section style={feedbackCard}>
-              <div className="card-grid">
-                <div>
-                  <div style={eyebrowDark}>Did you understand?</div>
-                  <div style={{ display: "grid", gap: "10px", marginBottom: "20px" }}>{lesson.checkInQuestions.map((question) => <div key={question} style={{ color: "#DDD2C4", lineHeight: 1.7, fontSize: "14px" }}>{question}</div>)}</div>
-                  <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
-                    <button onClick={() => setUnderstood(true)} style={toggleButtonStyle(understood)}>Yes, mostly</button>
-                    <button onClick={() => setUnderstood(false)} style={toggleButtonStyle(!understood)}>Not yet</button>
+            <section className="panel feedback-panel">
+              <div className="section-heading"><span className="eyebrow">Understanding Check</span><h2>Teach it back to Eggsy</h2></div>
+              <div className="grid two-up">
+                <div className="question-box">
+                  {lesson.checkInQuestions.map((question) => <div key={question} className="question-row">{question}</div>)}
+                  <div className="toggle-row">
+                    <button className={`toggle-pill ${understood ? "active" : ""}`} onClick={() => setUnderstood(true)}>Yes, mostly</button>
+                    <button className={`toggle-pill ${!understood ? "active danger" : ""}`} onClick={() => setUnderstood(false)}>Not yet</button>
                   </div>
                 </div>
-
                 <div>
-                  <div style={eyebrowDark}>Reverse teach</div>
-                  <textarea value={learnerExplanation} onChange={(event) => setLearnerExplanation(event.target.value)} rows={5} placeholder="Explain the topic back in your own words." style={{ ...darkInputStyle, resize: "vertical", marginBottom: "12px" }} />
-                  <input value={confusionArea} onChange={(event) => setConfusionArea(event.target.value)} placeholder="Still confused about..." style={{ ...darkInputStyle, marginBottom: "14px" }} />
-                  <button onClick={() => void handleFeedbackSubmit()} disabled={feedbackLoading} style={submitFeedbackStyle}>
-                    {feedbackLoading ? "Checking understanding..." : "Evaluate understanding"}
-                  </button>
+                  <textarea className="input textarea dark" value={learnerExplanation} onChange={(event) => setLearnerExplanation(event.target.value)} rows={5} placeholder="Explain the topic back in your own words." />
+                  <input className="input dark" value={confusionArea} onChange={(event) => setConfusionArea(event.target.value)} placeholder="Still confused about..." />
+                  <button className="cta-button wide" onClick={() => void handleFeedbackSubmit()} disabled={feedbackLoading}>{feedbackLoading ? "Checking..." : "Evaluate Understanding"}</button>
                 </div>
               </div>
-
-              {feedback ? (
-                <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid rgba(255,255,255,0.14)" }}>
-                  <div style={eyebrowDark}>AI teacher response</div>
-                  <p style={{ lineHeight: 1.8, color: "#F1EADC", marginBottom: "10px" }}>{feedback.coachingResponse}</p>
-                  <div style={{ color: "#BFB5A5", fontSize: "13px" }}>Concept overlap score: {feedback.overlapScore}</div>
-                </div>
-              ) : null}
+              {feedback ? <div className="coach-response"><span className="eyebrow">Eggsy says</span><p>{feedback.coachingResponse}</p><small>Concept overlap score: {feedback.overlapScore}</small></div> : null}
             </section>
           </div>
         ) : (
-          <section style={sectionCard}>
-            <div style={sectionEyebrowStyle}>Predefined topic library</div>
-            <div className="card-grid">
-              {topics.slice(0, 6).map((topic) => (
-                <div key={topic.slug} style={{ background: "#FDFCFA", border: "1px solid #E6E0D6", borderRadius: "20px", padding: "20px" }}>
-                  <div style={{ fontSize: "12px", color: "#A0927E", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700 }}>{topic.category}</div>
-                  <div style={{ fontSize: "20px", fontFamily: "'Cormorant Garamond', serif", marginBottom: "8px" }}>{topic.title}</div>
-                  <p style={{ color: "#5F594F", lineHeight: 1.7, fontSize: "14px" }}>{topic.shortSummary}</p>
-                </div>
+          <section className="panel library-panel">
+            <div className="section-heading"><span className="eyebrow">Starter Library</span><h2>Browse Eggsy's ready-made quests</h2></div>
+            <div className="grid two-up">
+              {topics.slice(0, 8).map((topic) => (
+                <article key={topic.slug} className="library-card"><small>{topic.category}</small><strong>{topic.title}</strong><p>{topic.shortSummary}</p></article>
               ))}
             </div>
           </section>
@@ -396,86 +310,62 @@ export default function App() {
   );
 }
 
-function Field({ label, children }) {
+function EggsyMascot({ theme, compact = false }) {
   return (
-    <label style={{ display: "grid", gap: "9px" }}>
-      <span style={labelStyle}>{label}</span>
-      {children}
-    </label>
+    <svg viewBox="0 0 220 220" className={compact ? "eggsy compact" : "eggsy"} aria-label="Eggsy mascot">
+      <defs>
+        <linearGradient id={`yolk-${theme}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={theme === "dark" ? "#ffd84d" : "#ffd84a"} />
+          <stop offset="100%" stopColor={theme === "dark" ? "#ffb703" : "#ffca3a"} />
+        </linearGradient>
+      </defs>
+      <ellipse cx="110" cy="198" rx="52" ry="10" fill={theme === "dark" ? "rgba(0,0,0,0.28)" : "rgba(18,26,20,0.12)"} />
+      <path d="M110 20C73 20 48 60 48 111v21c0 39 28 68 62 68s62-29 62-68v-21c0-51-25-91-62-91Z" fill={theme === "dark" ? "#edf2ff" : "#fffaf0"} stroke={theme === "dark" ? "#c7d2fe" : "#32415f"} strokeWidth="8" />
+      <path d="M48 128c14 18 39 30 62 30s48-12 62-30v6c0 39-28 66-62 66s-62-27-62-66Z" fill={`url(#yolk-${theme})`} stroke={theme === "dark" ? "#c7d2fe" : "#32415f"} strokeWidth="8" strokeLinejoin="round" />
+      <path d="M44 136c-16 8-24 18-24 28 0 8 6 13 15 13 10 0 18-5 26-15" fill={theme === "dark" ? "#ffcc33" : "#ffd54f"} stroke={theme === "dark" ? "#c7d2fe" : "#32415f"} strokeWidth="8" strokeLinecap="round" />
+      <path d="M176 136c16 8 24 18 24 28 0 8-6 13-15 13-10 0-18-5-26-15" fill={theme === "dark" ? "#ffcc33" : "#ffd54f"} stroke={theme === "dark" ? "#c7d2fe" : "#32415f"} strokeWidth="8" strokeLinecap="round" />
+      <path d="M80 80c-10-6-19-5-28 2" fill="none" stroke="#32415f" strokeWidth="7" strokeLinecap="round" />
+      <path d="M140 80c10-6 19-5 28 2" fill="none" stroke="#32415f" strokeWidth="7" strokeLinecap="round" />
+      <circle cx="77" cy="112" r="16" fill="#32415f" />
+      <circle cx="143" cy="112" r="16" fill="#32415f" />
+      <circle cx="83" cy="106" r="5" fill="#ffffff" />
+      <circle cx="149" cy="106" r="5" fill="#ffffff" />
+      <path d="M96 136c0 10 8 18 14 18s14-8 14-18c-7 2-12 3-14 3s-7-1-14-3Z" fill="#32415f" />
+      <path d="M99 149c3 5 8 8 11 8s8-3 11-8c-4-2-8-3-11-3s-7 1-11 3Z" fill="#ff7b7b" />
+      <ellipse cx="77" cy="128" rx="8" ry="4" fill={theme === "dark" ? "#475569" : "#4d5d79"} opacity="0.5" />
+      <ellipse cx="143" cy="128" rx="8" ry="4" fill={theme === "dark" ? "#475569" : "#4d5d79"} opacity="0.5" />
+    </svg>
   );
 }
 
-function MetaLine({ label, value }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", fontSize: "13px", marginBottom: "8px", color: "#4F4A40" }}>
-      <span>{label}</span>
-      <span style={{ fontWeight: 700 }}>{value}</span>
-    </div>
-  );
+function Field({ label, children }) {
+  return <label className="field-wrap"><span className="field-label">{label}</span>{children}</label>;
+}
+
+function StatCard({ value, label }) {
+  return <div className="stat-card"><strong>{value}</strong><span>{label}</span></div>;
 }
 
 function capitalize(value) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-const heroLeftCard = { background: "rgba(255,255,255,0.7)", border: "1px solid #DDD8D0", borderRadius: "24px", padding: "38px 34px", backdropFilter: "blur(6px)" };
-const heroRightCard = { background: "#0F0F1A", color: "#F6F3EE", borderRadius: "24px", padding: "30px 28px", display: "flex", flexDirection: "column", justifyContent: "space-between" };
-const sectionCard = { background: "rgba(255,255,255,0.8)", border: "1px solid #DDD8D0", borderRadius: "24px", padding: "28px", marginBottom: "30px" };
-const mainLessonCard = { background: "#FFFFFF", border: "1px solid #E2DDD6", borderRadius: "24px", padding: "30px", boxShadow: "0 8px 28px rgba(15,15,26,0.06)" };
-const snapshotCard = { minWidth: "200px", background: "#F8F5EF", border: "1px solid #E6E0D6", borderRadius: "18px", padding: "16px 18px" };
-const feedbackCard = { background: "#0F0F1A", color: "#F6F3EE", borderRadius: "24px", padding: "30px" };
-const labelStyle = { display: "block", fontSize: "10px", letterSpacing: "0.16em", textTransform: "uppercase", color: "#8F8679", fontWeight: 700 };
-const eyebrowDark = { fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.16em", color: "#B8AA96", marginBottom: "12px", fontWeight: 700 };
-const inputStyle = { width: "100%", border: "1px solid #D8D1C7", borderRadius: "14px", padding: "14px 15px", fontSize: "14px", color: "#0F0F1A", background: "#FFFDFC", outline: "none" };
-const darkInputStyle = { width: "100%", border: "1px solid rgba(255,255,255,0.18)", borderRadius: "14px", padding: "13px 14px", fontSize: "14px", color: "#F6F3EE", background: "rgba(255,255,255,0.05)", outline: "none" };
-const secondaryCardStyle = { background: "rgba(255,255,255,0.82)", border: "1px solid #E2DDD6", borderRadius: "22px", padding: "24px" };
-const sectionEyebrowStyle = { fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.14em", color: "#A0927E", marginBottom: "14px", fontWeight: 700 };
-const listItemStyle = { background: "#F8F5EF", border: "1px solid #EAE3D8", borderRadius: "14px", padding: "12px 14px", color: "#534E44", lineHeight: 1.6, fontSize: "14px" };
-const submitFeedbackStyle = { border: "none", borderRadius: "999px", padding: "12px 18px", background: "#F6F3EE", color: "#0F0F1A", fontWeight: 700, cursor: "pointer" };
-
-function toggleButtonStyle(active) {
-  return {
-    border: "1px solid rgba(255,255,255,0.18)",
-    borderRadius: "999px",
-    padding: "10px 14px",
-    background: active ? "#B5935A" : "rgba(255,255,255,0.06)",
-    color: "#F6F3EE",
-    cursor: "pointer",
-  };
-}
-function createLocalLesson({
-  topic,
-  learnerLevel,
-  mood,
-  preferredStyle,
-  confusionPattern,
-  previousBehavior,
-}) {
+function createLocalLesson({ topic, learnerLevel, mood, preferredStyle, confusionPattern, previousBehavior }) {
   const tone = getMoodTone(mood);
   const styleLens = getStyleLens(preferredStyle);
   const levelGuide = getLevelGuide(learnerLevel);
   const title = topic.title;
-  const summary = topic.shortSummary ||     `${title} is easier to learn when you move from purpose to process to example.`;
-
+  const summary = topic.shortSummary || `${title} is easier to learn when you move from purpose to process to example.`;
   return {
     topic: {
-      slug: topic.slug || null,
-      title,
-      category: topic.category || "Custom",
-      shortSummary: summary,
+      slug: topic.slug || null, title, category: topic.category || "Custom", shortSummary: summary,
       foundation: `${title} starts making sense once we define what it is, why it matters, and what problem it solves.`,
       coreIdea: `${title} is best understood by focusing on its main purpose, the key parts involved, and the outcome it creates.`,
       howItWorks: `Break ${title} into a simple sequence: inputs, transformation, output, and what changes at each step.`,
       realWorldExample: `Imagine using ${title} in a practical real-life scenario where its result becomes easy to observe.`,
       summary: `${title} becomes easier when you connect the big idea, the process, and one concrete example.`,
     },
-    learnerSnapshot: {
-      level: learnerLevel,
-      mood,
-      preferredStyle,
-      confusionPattern,
-      previousBehavior,
-    },
+    learnerSnapshot: { level: learnerLevel, mood, preferredStyle, confusionPattern, previousBehavior },
     stages: [
       { id: "foundation", title: "Foundation", body: `${levelGuide.foundationLead} ${title} matters because it helps explain or solve something important.` },
       { id: "core", title: "Core Idea", body: `${styleLens.coreFraming} ${title} has a core purpose and a set of parts that work together toward a result.` },
@@ -491,144 +381,85 @@ function createLocalLesson({
     adaptiveTips: [
       tone.studyTip,
       styleLens.studyAdvice,
-      confusionPattern
-        ? `Watch for this confusion pattern: ${confusionPattern}. Slow down when you reach that point.`
-        : "Pause after each stage and restate it in one sentence before moving on.",
+      confusionPattern ? `Watch for this confusion pattern: ${confusionPattern}. Slow down when you reach that point.` : "Pause after each stage and restate it in one sentence before moving on.",
     ],
-    confusionHotspots: [
-      "Jumping to the result before understanding the process",
-      "Using a label without defining what it means",
-      "Remembering the example but not the mechanism",
-    ],
-    checkInQuestions: [
-      `In one sentence, what is the main job of ${title}?`,
-      "Which part still feels unclear: the idea, the process, or the example?",
-      `Teach ${title} back as if you were helping a classmate.`,
-    ],
+    confusionHotspots: ["Jumping to the result before understanding the process", "Using a label without defining what it means", "Remembering the example but not the mechanism"],
+    checkInQuestions: [`In one sentence, what is the main job of ${title}?`, "Which part still feels unclear: the idea, the process, or the example?", `Teach ${title} back as if you were helping a classmate.`],
   };
 }
 
 function createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson }) {
-  const overlapScore = scoreExplanation(
-    learnerExplanation,
-    `${lesson?.topic?.summary || ""} ${lesson?.topic?.shortSummary || ""}`
-  );
-
-  if (confusionArea.trim()) {
-    return {
-      overlapScore,
-      nextAction: "reteach",
-      coachingResponse: `Focus on "${confusionArea}" first. Re-read the core idea and explain it again in two short sentences.`,
-    };
-  }
-
-  if (understood && overlapScore >= 0.2) {
-    return {
-      overlapScore,
-      nextAction: "advance",
-      coachingResponse: "Nice work. Your explanation is capturing the main idea. Try comparing the foundation stage to the process stage to deepen your understanding.",
-    };
-  }
-
-  return {
-    overlapScore,
-    nextAction: "reteach",
-    coachingResponse: `Let's simplify it one more step. Start with the purpose of ${lesson?.topic?.title || "the topic"}, then describe only one key step in the process.`,
-  };
+  const overlapScore = scoreExplanation(learnerExplanation, `${lesson?.topic?.summary || ""} ${lesson?.topic?.shortSummary || ""}`);
+  if (confusionArea.trim()) return { overlapScore, nextAction: "reteach", coachingResponse: `Focus on "${confusionArea}" first. Re-read the core idea and explain it again in two short sentences.` };
+  if (understood && overlapScore >= 0.2) return { overlapScore, nextAction: "advance", coachingResponse: "Nice work. Your explanation is capturing the main idea. Try comparing the foundation stage to the process stage to deepen your understanding." };
+  return { overlapScore, nextAction: "reteach", coachingResponse: `Let's simplify it one more step. Start with the purpose of ${lesson?.topic?.title || "the topic"}, then describe only one key step in the process.` };
 }
 
 function getMoodTone(mood) {
   const tones = {
-    focused: {
-      encouragement: "You are in a strong place to go deeper.",
-      memoryCue: "Memory cue:",
-      studyTip: "Stay with the exact mechanism instead of only the final answer.",
-    },
-    overwhelmed: {
-      encouragement: "We will keep this gentle and one step at a time.",
-      memoryCue: "Small takeaway:",
-      studyTip: "Read one stage, pause, and paraphrase it before moving on.",
-    },
-    curious: {
-      encouragement: "Let curiosity lead and connect each idea to a question.",
-      memoryCue: "Interesting takeaway:",
-      studyTip: "Ask what would happen if one part of the process changed.",
-    },
-    tired: {
-      encouragement: "We will keep the explanation compact and low-friction.",
-      memoryCue: "Quick takeaway:",
-      studyTip: "Focus on the foundation and summary first, then revisit details.",
-    },
+    focused: { encouragement: "You are in a strong place to go deeper.", memoryCue: "Memory cue:", studyTip: "Stay with the exact mechanism instead of only the final answer." },
+    overwhelmed: { encouragement: "We will keep this gentle and one step at a time.", memoryCue: "Small takeaway:", studyTip: "Read one stage, pause, and paraphrase it before moving on." },
+    curious: { encouragement: "Let curiosity lead and connect each idea to a question.", memoryCue: "Interesting takeaway:", studyTip: "Ask what would happen if one part of the process changed." },
+    tired: { encouragement: "We will keep the explanation compact and low-friction.", memoryCue: "Quick takeaway:", studyTip: "Focus on the foundation and summary first, then revisit details." },
   };
   return tones[mood] || tones.focused;
 }
+
 function getStyleLens(style) {
-  const styles = {
-    analogy: {
-      coreFraming: "Here is the big idea through a mental picture.",
-      exampleLead: "Picture it like this in daily life.",
-      beginnerLead: "Using an analogy-first explanation:",
-      studyAdvice: "If you get stuck, map each analogy part to the real concept.",
-    },
-    story: {
-      coreFraming: "Think of the concept as a sequence with characters and roles.",
-      exampleLead: "Now place it inside a short story-like situation.",
-      beginnerLead: "Using a story-driven explanation:",
-      studyAdvice: "Retell the process as a short story with cause and effect.",
-    },
-    technical: {
-      coreFraming: "We will define the system precisely before simplifying it.",
-      exampleLead: "Now anchor the abstraction in a practical use case.",
-      beginnerLead: "Using a structure-first explanation:",
-      studyAdvice: "List the components, then note what each one does.",
-    },
-    simple: {
-      coreFraming: "Strip away extra detail and keep only the essential idea.",
-      exampleLead: "Use one practical example to lock it in.",
-      beginnerLead: "Using the simplest clear explanation:",
-      studyAdvice: "Turn each stage into one short sentence in your own words.",
-    },
+  const stylesMap = {
+    analogy: { coreFraming: "Here is the big idea through a mental picture.", exampleLead: "Picture it like this in daily life.", beginnerLead: "Using an analogy-first explanation:", studyAdvice: "If you get stuck, map each analogy part to the real concept." },
+    story: { coreFraming: "Think of the concept as a sequence with characters and roles.", exampleLead: "Now place it inside a short story-like situation.", beginnerLead: "Using a story-driven explanation:", studyAdvice: "Retell the process as a short story with cause and effect." },
+    technical: { coreFraming: "We will define the system precisely before simplifying it.", exampleLead: "Now anchor the abstraction in a practical use case.", beginnerLead: "Using a structure-first explanation:", studyAdvice: "List the components, then note what each one does." },
+    simple: { coreFraming: "Strip away extra detail and keep only the essential idea.", exampleLead: "Use one practical example to lock it in.", beginnerLead: "Using the simplest clear explanation:", studyAdvice: "Turn each stage into one short sentence in your own words." },
   };
-  return styles[style] || styles.analogy;
+  return stylesMap[style] || stylesMap.analogy;
 }
+
 function getLevelGuide(level) {
-  const levels = {
-    child: {
-      foundationLead: "Start from zero and use familiar words.",
-      processHint: "Walk through the steps slowly and visibly.",
-      expertLead: "Even at a high-detail level, keep the explanation intuitive first.",
-    },
-    beginner: {
-      foundationLead: "Assume no background and define the basic pieces first.",
-      processHint: "Follow the process in a clean step-by-step order.",
-      expertLead: "Add precision while still connecting each detail to the learner's mental model.",
-    },
-    expert: {
-      foundationLead: "Use the foundation to align terminology before adding nuance.",
-      processHint: "Focus on the internal mechanism, dependencies, and edge cases.",
-      expertLead: "Here is the deeper technical framing.",
-    },
+  const levelsMap = {
+    child: { foundationLead: "Start from zero and use familiar words.", processHint: "Walk through the steps slowly and visibly.", expertLead: "Even at a high-detail level, keep the explanation intuitive first." },
+    beginner: { foundationLead: "Assume no background and define the basic pieces first.", processHint: "Follow the process in a clean step-by-step order.", expertLead: "Add precision while still connecting each detail to the learner's mental model." },
+    expert: { foundationLead: "Use the foundation to align terminology before adding nuance.", processHint: "Focus on the internal mechanism, dependencies, and edge cases.", expertLead: "Here is the deeper technical framing." },
   };
-  return levels[level] || levels.beginner;
+  return levelsMap[level] || levelsMap.beginner;
 }
+
 function scoreExplanation(learnerText, referenceText) {
   const learnerTokens = tokenize(learnerText);
   const referenceTokens = new Set(tokenize(referenceText));
-  if (!learnerTokens.length) {
-    return 0;
-  }
+  if (!learnerTokens.length) return 0;
   let matches = 0;
-  for (const token of learnerTokens) {
-    if (referenceTokens.has(token)) {
-      matches += 1;
-    }
-  }
+  for (const token of learnerTokens) if (referenceTokens.has(token)) matches += 1;
   return Number((matches / learnerTokens.length).toFixed(2));
 }
+
 function tokenize(text) {
-  return String(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((token) => token.length > 2);
+  return String(text).toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((token) => token.length > 2);
 }
+
+const styles = `
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap');
+:root { --bg:#0e1510; --bg-soft:#16201a; --panel:#18231c; --panel-2:#202d25; --panel-3:#25352a; --text:#f6fff7; --muted:#adc5b3; --line:rgba(255,255,255,0.09); --shadow:0 18px 50px rgba(0,0,0,0.28); --lime:#58cc02; --lime-deep:#46a302; --sun:#ffd84a; --sky:#66a9ff; --danger:#ff6b6b; }
+:root[data-theme="light"] { --bg:#f4f7ee; --bg-soft:#eef5df; --panel:#ffffff; --panel-2:#fbfff6; --panel-3:#f3f8ea; --text:#1d241d; --muted:#6f7d73; --line:rgba(34,44,34,0.09); --shadow:0 18px 50px rgba(60,94,55,0.12); --lime:#58cc02; --lime-deep:#46a302; --sun:#ffca3a; --sky:#4d8ff7; --danger:#f25f5c; }
+*{box-sizing:border-box} body{margin:0;font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text)} button,input,textarea,select{font:inherit}
+.app-shell{min-height:100vh;background:radial-gradient(circle at top left, rgba(88,204,2,0.18), transparent 24%),radial-gradient(circle at 80% 10%, rgba(102,169,255,0.14), transparent 22%),linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);color:var(--text);position:relative;overflow-x:hidden}
+.background-orb{position:fixed;border-radius:999px;filter:blur(80px);opacity:.25;pointer-events:none}.orb-one{width:340px;height:340px;background:var(--lime);top:-100px;left:-80px}.orb-two{width:280px;height:280px;background:var(--sun);right:-80px;top:160px}
+.page-frame{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:28px 0 72px;position:relative;z-index:1}.topbar,.hero-panel,.mission-strip,.grid,.level-grid,.tabs,.toggle-row,.hero-stats,.pill-row,.brand-wrap{display:flex;gap:16px}.topbar,.hero-panel,.mission-strip,.toggle-row{align-items:center}.topbar,.hero-panel{justify-content:space-between}.hero-panel,.mission-strip,.lesson-stack{margin-top:22px}.grid,.level-grid,.topic-grid,.bullet-stack{display:grid}
+.brand-chip,.theme-toggle,.panel,.mission-card,.level-card,.topic-chip,.stat-card,.library-card,.stage-card,.bullet-card,.error-banner,.snapshot-card,.explanation-card,.question-box,.coach-response{border:2px solid var(--line);box-shadow:var(--shadow)}
+.brand-chip{width:66px;height:66px;border-radius:22px;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);display:grid;place-items:center}.brand-title{font-size:34px;font-weight:900;line-height:1}.brand-subtitle{color:var(--muted);font-size:14px}.theme-toggle{border-radius:999px;background:var(--panel);color:var(--text);padding:12px 18px;display:flex;gap:18px;align-items:center;cursor:pointer;font-weight:800}
+.hero-panel{align-items:stretch;gap:24px}.hero-copy,.hero-mascot-card,.panel,.mission-card,.lesson-hero,.active-explainer,.feedback-panel{background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);border-radius:28px;padding:26px}.hero-copy{flex:1.2;min-width:0}.hero-copy h1{margin:12px 0 14px;font-size:clamp(42px,6vw,72px);line-height:.95;letter-spacing:-.04em}.hero-copy p{color:var(--muted);font-size:18px;line-height:1.7;max-width:680px}.hero-mascot-card{flex:.8;min-width:320px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center}
+.mascot-badge,.pill,.eyebrow,.field-label,.mission-eyebrow{text-transform:uppercase;letter-spacing:.16em;font-size:11px;font-weight:900}.mascot-badge,.pill{background:rgba(255,255,255,.06);color:var(--text);border-radius:999px;padding:10px 14px}.pill-green{background:rgba(88,204,2,.18)}.pill-blue{background:rgba(102,169,255,.18)}.hero-stats{margin-top:24px;flex-wrap:wrap}.stat-card{min-width:120px;border-radius:24px;background:var(--panel-3);padding:18px}.stat-card strong{display:block;font-size:30px;font-weight:900}.stat-card span{color:var(--muted)}.mascot-caption{display:grid;gap:6px;margin-top:10px}.mascot-caption span{color:var(--muted);line-height:1.6}
+.mission-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.mission-card{min-height:164px}.mission-card strong{display:block;font-size:23px;margin:12px 0 8px}.mission-card p{color:var(--muted);margin:0;line-height:1.6}.mission-card.lime{background:linear-gradient(180deg,rgba(88,204,2,.18),var(--panel))}.mission-card.yellow{background:linear-gradient(180deg,rgba(255,216,74,.18),var(--panel))}.mission-card.blue{background:linear-gradient(180deg,rgba(102,169,255,.18),var(--panel))}
+.panel{margin-top:22px}.section-heading{margin-bottom:18px}.section-heading h2{margin:8px 0 0;font-size:32px}.eyebrow,.field-label,.mission-eyebrow{color:var(--muted)}.grid.two-up{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.lesson-stage-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.field-wrap{display:grid;gap:8px}
+.input-shell{display:flex;border:2px solid var(--line);background:var(--panel-3);border-radius:24px;overflow:hidden;transition:.2s ease}.input-shell.focused{transform:translateY(-1px);border-color:rgba(88,204,2,.45);box-shadow:0 0 0 4px rgba(88,204,2,.12)}.input,.concept-input{width:100%;border:2px solid var(--line);border-radius:20px;background:var(--panel-3);color:var(--text);padding:15px 16px;outline:none}.concept-input{border:0;border-radius:0;background:transparent;padding:19px 20px}.input::placeholder,.concept-input::placeholder,.textarea::placeholder{color:var(--muted)}.textarea{resize:vertical;min-height:120px}.dark{background:rgba(255,255,255,.05)}
+.cta-button{border:0;border-bottom:5px solid var(--lime-deep);border-radius:18px;background:var(--lime);color:#fff;padding:16px 22px;font-weight:900;letter-spacing:.02em;cursor:pointer;align-self:flex-start}.cta-button:disabled{cursor:not-allowed;opacity:.65}.cta-button.wide{width:100%;margin-top:14px}
+.topic-grid{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}.topic-chip{background:var(--panel-3);color:var(--text);border-radius:22px;padding:14px 16px;text-align:left;cursor:pointer}.topic-chip span{display:block;font-weight:800;margin-bottom:4px}.topic-chip small{color:var(--muted)}
+.level-grid{margin-top:22px;grid-template-columns:repeat(3,minmax(0,1fr))}.level-card{background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);color:var(--text);border-radius:26px;padding:24px;text-align:left;cursor:pointer}.level-card.active{transform:translateY(-4px);box-shadow:0 22px 52px rgba(0,0,0,.28)}.level-bar{width:42px;height:6px;border-radius:999px;margin-bottom:16px}.level-card strong{font-size:24px;display:block}.level-card span,.level-card p{color:var(--muted)}
+.error-banner{margin-top:18px;background:rgba(255,107,107,.14);border-radius:18px;padding:16px 18px;color:#ffdede}.lesson-stack{display:grid;gap:22px}.lesson-hero{display:flex;justify-content:space-between;gap:20px;align-items:start}.lesson-hero h2{margin:8px 0 10px;font-size:38px}.lesson-hero p{color:var(--muted);line-height:1.7;max-width:680px}.snapshot-card{min-width:220px;border-radius:24px;background:var(--panel-3);padding:18px}.snapshot-line{display:flex;justify-content:space-between;margin-top:10px;gap:12px}.snapshot-line span{color:var(--muted)}
+.tabs{flex-wrap:wrap;margin-bottom:16px}.tab{border:2px solid var(--line);background:var(--panel-3);color:var(--text);border-radius:18px;padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer}.tab.active{background:rgba(88,204,2,.14)}.tab small{color:var(--muted);display:block}.dot{width:12px;height:12px;border-radius:999px}.explanation-card{border-width:2px;border-style:solid;border-radius:26px;background:var(--panel-3);padding:24px}.explanation-card p{margin:10px 0 0;color:var(--text);line-height:1.9;font-size:17px}
+.stage-card,.info-panel,.library-card{border-radius:24px;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);padding:22px}.stage-card p,.library-card p{color:var(--muted);line-height:1.7}.library-card strong{display:block;font-size:24px;margin:8px 0}.library-card small{color:var(--sun);font-weight:800}.bullet-stack{gap:10px;margin-top:12px}.bullet-card{border-radius:18px;background:var(--panel-3);padding:14px 15px;line-height:1.5}
+.feedback-panel{margin-bottom:10px}.question-box{border-radius:24px;background:var(--panel-3);padding:18px}.question-row{padding:12px 0;border-bottom:1px solid var(--line);line-height:1.6}.question-row:last-child{border-bottom:0}.toggle-row{margin-top:18px;flex-wrap:wrap}.toggle-pill{border:2px solid var(--line);border-radius:999px;background:var(--panel);color:var(--text);padding:12px 16px;font-weight:800;cursor:pointer}.toggle-pill.active{background:rgba(88,204,2,.16);border-color:rgba(88,204,2,.38)}.toggle-pill.danger.active{background:rgba(255,107,107,.14);border-color:rgba(255,107,107,.35)}
+.coach-response{margin-top:20px;border-radius:24px;background:rgba(88,204,2,.12);padding:18px}.coach-response p{margin:8px 0;line-height:1.7}.coach-response small{color:var(--muted)}.eggsy{width:240px;max-width:100%}.eggsy.compact{width:42px}
+@media (max-width:960px){.hero-panel,.lesson-hero{flex-direction:column}.mission-strip,.level-grid,.grid.two-up,.lesson-stage-grid{grid-template-columns:1fr}.hero-mascot-card{min-width:0}}
+@media (max-width:720px){.page-frame{width:min(100% - 20px,1180px)}.topbar{flex-direction:column;align-items:flex-start}.brand-title{font-size:28px}.hero-copy h1{font-size:42px}.cta-button{width:100%}.input-shell{flex-direction:column}}
+`;
