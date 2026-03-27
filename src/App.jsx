@@ -1,6 +1,6 @@
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LOCAL_TOPIC_LIBRARY } from "./topicLibrary.js";
+import { DEFAULT_UI_COPY } from "../shared/localization.js";
 
 const DEFAULT_TOPICS = LOCAL_TOPIC_LIBRARY;
 const BUILT_IN_TOPIC_COUNT = DEFAULT_TOPICS.length;
@@ -14,16 +14,17 @@ const LEVELS = [
 
 const MOODS = ["focused", "curious", "overwhelmed", "tired"];
 const STYLES = ["analogy", "story", "technical", "simple"];
-const LANGUAGES = ["English", "Hindi", "Spanish", "French", "German", "Portuguese", "Russian", "Arabic", "Bengali", "Urdu", "Japanese", "Korean", "Mandarin Chinese", "Turkish", "Tamil"];
 
 export default function App() {
   const [theme, setTheme] = useState("dark");
   const [concept, setConcept] = useState("");
   const [topics, setTopics] = useState(DEFAULT_TOPICS);
+  const [languageOptions, setLanguageOptions] = useState([{ code: "en", name: "English", nativeName: "English" }]);
+  const [uiCopy, setUiCopy] = useState(DEFAULT_UI_COPY);
   const [activeLevel, setActiveLevel] = useState("beginner");
   const [learnerName, setLearnerName] = useState("");
   const [interest, setInterest] = useState("");
-  const [language, setLanguage] = useState("English");
+  const [language, setLanguage] = useState("en");
   const [mood, setMood] = useState("focused");
   const [preferredStyle, setPreferredStyle] = useState("analogy");
   const [lesson, setLesson] = useState(null);
@@ -46,13 +47,14 @@ export default function App() {
   const hoverStartRef = useRef({});
   const inputRef = useRef(null);
   const resultsRef = useRef(null);
+  const previousLanguageRef = useRef("en");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
   useEffect(() => {
-    void loadTopics();
+    void Promise.all([loadTopics(), loadLanguages()]);
   }, []);
 
   useEffect(() => {
@@ -64,6 +66,44 @@ export default function App() {
     setHoverInsight("");
   }, [lesson]);
 
+  useEffect(() => {
+    void loadUiCopy(language);
+    if (previousLanguageRef.current !== language && lesson && concept.trim()) {
+      previousLanguageRef.current = language;
+      void handleExplain();
+      return;
+    }
+    previousLanguageRef.current = language;
+  }, [language]);
+
+  async function loadLanguages() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/languages`);
+      if (!res.ok) throw new Error("Language API unavailable");
+      const data = await res.json();
+      if (data.languages?.length) {
+        setLanguageOptions(data.languages);
+      }
+    } catch {
+      setLanguageOptions([{ code: "en", name: "English", nativeName: "English" }]);
+    }
+  }
+
+  async function loadUiCopy(languageCode) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/ui-copy?language=${languageCode}`);
+      if (!res.ok) throw new Error("UI copy unavailable");
+      const data = await res.json();
+      setUiCopy({
+        ...DEFAULT_UI_COPY,
+        ...(data.copy || {}),
+        moods: { ...DEFAULT_UI_COPY.moods, ...(data.copy?.moods || {}) },
+        styles: { ...DEFAULT_UI_COPY.styles, ...(data.copy?.styles || {}) },
+      });
+    } catch {
+      setUiCopy(DEFAULT_UI_COPY);
+    }
+  }
   async function loadTopics() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/topics`);
@@ -95,7 +135,7 @@ export default function App() {
           mood,
           preferredStyle,
           interest: activeLevel === "child" ? interest : "",
-          language,
+          language: currentLanguageOption?.name || "English",
         }),
       });
       const data = await res.json();
@@ -112,7 +152,7 @@ export default function App() {
         mood,
         preferredStyle,
         interest: activeLevel === "child" ? interest : "",
-        language,
+        language: currentLanguageOption?.name || "English",
       });
       setSessionId(`local-${Date.now()}`);
       setLesson(enrichLesson(fallbackLesson, activeLevel === "child" ? interest : ""));
@@ -163,9 +203,17 @@ export default function App() {
     }
   }
 
-  const currentLevel = LEVELS.find((level) => level.id === activeLevel);
+  const localizedLevels = useMemo(() => LEVELS.map((level) => ({
+    ...level,
+    label: level.id === "child" ? uiCopy.elementary : level.id === "beginner" ? uiCopy.intermediate : uiCopy.advanced,
+    sublabel: level.id === "child" ? uiCopy.elementarySublabel : level.id === "beginner" ? uiCopy.intermediateSublabel : uiCopy.advancedSublabel,
+    description: level.id === "child" ? uiCopy.elementaryDescription : level.id === "beginner" ? uiCopy.intermediateDescription : uiCopy.advancedDescription,
+  })), [uiCopy]);
+  const currentLanguageOption = languageOptions.find((option) => option.code === language) || languageOptions[0];
+  const currentLevel = localizedLevels.find((level) => level.id === activeLevel);
   const activeLevelText = useMemo(() => lesson?.levelExplanations?.[activeLevel] || "", [lesson, activeLevel]);
   const activeStage = lesson?.stages?.[activeStageIndex] || null;
+  const activeExplanationLabel = activeLevel === "child" ? uiCopy.elementaryExplanation : activeLevel === "beginner" ? uiCopy.intermediateExplanation : uiCopy.advancedExplanation;
   const flashcards = lesson?.flashcards || [];
   const activeFlashcard = flashcards[activeCardIndex] || null;
   const quizItems = lesson?.quizQuestions || [];
@@ -182,54 +230,50 @@ export default function App() {
             <div className="brand-chip"><EggzyMascot theme={theme} compact /></div>
             <div>
               <div className="brand-title">Eggzy</div>
-              <div className="brand-subtitle">Hatch your understanding</div>
+              <div className="brand-subtitle">{uiCopy.tagline}</div>
             </div>
           </div>
           <button className="theme-toggle" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>
-            <span>{theme === "dark" ? "Dark Quest" : "Sunny Quest"}</span>
-            <span>{theme === "dark" ? "Moon On" : "Sun On"}</span>
+            <span>{theme === "dark" ? uiCopy.themeDarkQuest : uiCopy.themeSunnyQuest}</span>
+            <span>{theme === "dark" ? uiCopy.themeMoonOn : uiCopy.themeSunOn}</span>
           </button>
         </header>
 
         <section className="hero-panel">
           <div className="hero-copy">
-            <div className="pill-row">
-              <span className="pill">Eggzy Mode</span>
-              <span className="pill pill-green">{BUILT_IN_TOPIC_COUNT} topic library</span>
-              <span className="pill pill-blue">AI-guided explanations</span>
-            </div>
-            <h1>Learn with long-form teaching, revision cards, and mastery checks.</h1>
+
+            <h1>{uiCopy.heroTitle}</h1>
             <p>
-              Eggzy now teaches in a fuller journey: deep explanation slides, revision flashcards, MCQ quiz practice, and a teach-back review that spots missing ideas and reteaches them.
+              {uiCopy.heroBody}
             </p>
             <div className="hero-stats">
-              <StatCard value="5" label="Lesson slides" />
-              <StatCard value="MCQ" label="Quiz mode" />
-              <StatCard value="Revise" label="Flashcards + teach-back" />
+              <StatCard value="5" label={uiCopy.heroLessons} />
+              <StatCard value="MCQ" label={uiCopy.heroQuiz} />
+              <StatCard value="Revise" label={uiCopy.heroRevise} />
             </div>
           </div>
           <div className="hero-mascot-card">
             <EggzyMascot theme={theme} />
             <div className="mascot-caption">
-              <strong>Eggzy reteaches when you slow down.</strong>
-              <span>Long pauses on quiz items, missing concepts in teach-back, and shaky explanations become cues for reteaching.</span>
+              <strong>{uiCopy.heroMascotTitle}</strong>
+              <span>{uiCopy.heroMascotBody}</span>
             </div>
           </div>
         </section>
 
         <section className="panel profile-panel">
-          <div className="section-heading"><span className="eyebrow">Learner Setup</span><h2>Tell Eggzy how you learn best</h2></div>
+          <div className="section-heading"><span className="eyebrow">{uiCopy.learnerSetupEyebrow}</span><h2>{uiCopy.learnerSetupTitle}</h2></div>
           <div className="grid two-up">
-            {activeLevel === "child" ? <Field label="Interest hook"><input className="input" value={interest} onChange={(event) => setInterest(event.target.value)} placeholder="Example: cricket lover, gamer, artist" /></Field> : <div />}
-            <Field label="Language"><select className="input" value={language} onChange={(event) => setLanguage(event.target.value)}>{LANGUAGES.map((option) => <option key={option} value={option}>{option}</option>)}</select></Field>
-            <Field label="Learner name"><input className="input" value={learnerName} onChange={(event) => setLearnerName(event.target.value)} placeholder="Optional" /></Field>
-            <Field label="Current mental state"><select className="input" value={mood} onChange={(event) => setMood(event.target.value)}>{MOODS.map((option) => <option key={option} value={option}>{capitalize(option)}</option>)}</select></Field>
-            <Field label="Preferred explanation style"><select className="input" value={preferredStyle} onChange={(event) => setPreferredStyle(event.target.value)}>{STYLES.map((option) => <option key={option} value={option}>{capitalize(option)}</option>)}</select></Field>
+            {activeLevel === "child" ? <Field label={uiCopy.interestHook}><input className="input" value={interest} onChange={(event) => setInterest(event.target.value)} placeholder="Example: cricket lover, gamer, artist" /></Field> : <div />}
+            <Field label={uiCopy.language}><select className="input" value={language} onChange={(event) => setLanguage(event.target.value)}>{languageOptions.map((option) => <option key={option.code} value={option.code}>{option.nativeName} ({option.name})</option>)}</select></Field>
+            <Field label={uiCopy.learnerName}><input className="input" value={learnerName} onChange={(event) => setLearnerName(event.target.value)} placeholder={uiCopy.optional} /></Field>
+            <Field label={uiCopy.currentMentalState}><select className="input" value={mood} onChange={(event) => setMood(event.target.value)}>{MOODS.map((option) => <option key={option} value={option}>{uiCopy.moods?.[option] || capitalize(option)}</option>)}</select></Field>
+            {activeLevel !== "child" ? <Field label={uiCopy.explanationStyle}><select className="input" value={preferredStyle} onChange={(event) => setPreferredStyle(event.target.value)}>{STYLES.map((option) => <option key={option} value={option}>{uiCopy.styles?.[option] || capitalize(option)}</option>)}</select></Field> : null}
           </div>
         </section>
 
         <section className="panel concept-panel">
-          <div className="section-heading"><span className="eyebrow">Choose A Concept</span><h2>Start with a topic and let Eggzy teach it step by step</h2></div>
+          <div className="section-heading"><span className="eyebrow">{uiCopy.chooseConceptEyebrow}</span><h2>{uiCopy.chooseConceptTitle}</h2></div>
           <div className={`input-shell ${inputFocused ? "focused" : ""}`}>
             <input
               ref={inputRef}
@@ -239,9 +283,9 @@ export default function App() {
               onKeyDown={(event) => event.key === "Enter" && void handleExplain()}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
-              placeholder="Examples: fractions, photosynthesis, black holes, microprocessor, blockchain"
+              placeholder={uiCopy.conceptPlaceholder}
             />
-            <button className="cta-button" onClick={() => void handleExplain()} disabled={!concept.trim() || loading}>{loading ? "Teaching..." : "Teach Me"}</button>
+            <button className="cta-button" onClick={() => void handleExplain()} disabled={!concept.trim() || loading}>{loading ? uiCopy.teaching : uiCopy.teachMe}</button>
           </div>
           <div className="topic-grid">
             {topics.slice(0, 12).map((topic) => (
@@ -253,7 +297,7 @@ export default function App() {
         </section>
 
         <section className="level-grid">
-          {LEVELS.map((level) => (
+          {localizedLevels.map((level) => (
             <button key={level.id} className={`level-card ${activeLevel === level.id ? "active" : ""}`} onClick={() => setActiveLevel(level.id)}>
               <div className="level-bar" style={{ background: level.accent }} />
               <strong>{level.label}</strong>
@@ -269,23 +313,23 @@ export default function App() {
           <div ref={resultsRef} className="lesson-stack">
             <section className="panel lesson-hero">
               <div>
-                <span className="eyebrow">Current Mission</span>
+                <span className="eyebrow">{uiCopy.currentMission}</span>
                 <h2>{lesson.topic.title}</h2>
                 <p>{lesson.topic.shortSummary}</p>
               </div>
               <div className="snapshot-card">
-                <span className="eyebrow">Learner snapshot</span>
-                <div className="snapshot-line"><span>Level</span><strong>{capitalize(lesson.learnerSnapshot.level)}</strong></div>
-                <div className="snapshot-line"><span>Mood</span><strong>{capitalize(lesson.learnerSnapshot.mood)}</strong></div>
-                <div className="snapshot-line"><span>Style</span><strong>{capitalize(lesson.learnerSnapshot.preferredStyle)}</strong></div>
-                <div className="snapshot-line"><span>Language</span><strong>{lesson.learnerSnapshot.language || "English"}</strong></div>
-                {lesson.learnerSnapshot.level === "child" ? <div className="snapshot-line"><span>Interest</span><strong>{lesson.learnerSnapshot.interest || "General"}</strong></div> : null}
+                <span className="eyebrow">{uiCopy.learnerSnapshot}</span>
+                <div className="snapshot-line"><span>{uiCopy.level}</span><strong>{capitalize(lesson.learnerSnapshot.level)}</strong></div>
+                <div className="snapshot-line"><span>{uiCopy.mood}</span><strong>{uiCopy.moods?.[lesson.learnerSnapshot.mood] || capitalize(lesson.learnerSnapshot.mood)}</strong></div>
+                {lesson.learnerSnapshot.level !== "child" ? <div className="snapshot-line"><span>{uiCopy.style}</span><strong>{uiCopy.styles?.[lesson.learnerSnapshot.preferredStyle] || capitalize(lesson.learnerSnapshot.preferredStyle)}</strong></div> : null}
+                <div className="snapshot-line"><span>{uiCopy.language}</span><strong>{lesson.learnerSnapshot.language || "English"}</strong></div>
+                {lesson.learnerSnapshot.level === "child" ? <div className="snapshot-line"><span>{uiCopy.interest}</span><strong>{lesson.learnerSnapshot.interest || "General"}</strong></div> : null}
               </div>
             </section>
 
             <section className="panel deep-explainer">
               <div className="tabs">
-                {LEVELS.map((level) => (
+                {localizedLevels.map((level) => (
                   <button key={level.id} className={`tab ${activeLevel === level.id ? "active" : ""}`} onClick={() => setActiveLevel(level.id)}>
                     <span className="dot" style={{ background: level.accent }} />
                     <div><strong>{level.label}</strong><small>{level.sublabel}</small></div>
@@ -293,18 +337,20 @@ export default function App() {
                 ))}
               </div>
               <div className="explanation-card long-form" style={{ borderColor: currentLevel?.accent }}>
-                <span className="eyebrow">{currentLevel?.label} explanation</span>
+                <span className="eyebrow">{activeExplanationLabel}</span>
                 <p>{activeLevelText}</p>
               </div>
-              <div className="learning-modes grid three-up">
-                <ModeCard title="Analogy Lens" body={lesson.learningModes.analogy} />
-                <ModeCard title="Step-by-Step Lens" body={lesson.learningModes.stepByStep} />
-                <ModeCard title="Real-Life Lens" body={lesson.learningModes.realLife} />
-              </div>
+              {activeLevel !== "child" ? (
+                <div className="learning-modes grid three-up">
+                  <ModeCard title={uiCopy.analogyLens} body={lesson.learningModes.analogy} />
+                  <ModeCard title={uiCopy.stepByStepLens} body={lesson.learningModes.stepByStep} />
+                  <ModeCard title={uiCopy.realLifeLens} body={lesson.learningModes.realLife} />
+                </div>
+              ) : null}
             </section>
 
             <section className="panel navigator-panel">
-              <div className="section-heading"><span className="eyebrow">Lesson Navigation</span><h2>Walk through the concept one full screen at a time</h2></div>
+              <div className="section-heading"><span className="eyebrow">{uiCopy.lessonNavigationEyebrow}</span><h2>{uiCopy.lessonNavigationTitle}</h2></div>
               <div className="slide-shell">
                 <button className="nav-arrow" onClick={() => setActiveStageIndex((current) => Math.max(0, current - 1))} disabled={activeStageIndex === 0}>‹</button>
                 <div className="slide-card">
@@ -322,37 +368,37 @@ export default function App() {
             </section>
 
             <section className="grid two-up">
-              <article className="panel info-panel"><span className="eyebrow">Confusion hotspots</span><div className="bullet-stack">{lesson.confusionHotspots.map((item) => <div key={item} className="bullet-card">{item}</div>)}</div></article>
-              <article className="panel info-panel"><span className="eyebrow">Adaptive coaching</span><div className="bullet-stack">{lesson.adaptiveTips.map((item) => <div key={item} className="bullet-card">{item}</div>)}</div></article>
+              <article className="panel info-panel"><span className="eyebrow">{uiCopy.confusionHotspots}</span><div className="bullet-stack">{lesson.confusionHotspots.map((item) => <div key={item} className="bullet-card">{item}</div>)}</div></article>
+              <article className="panel info-panel"><span className="eyebrow">{uiCopy.adaptiveCoaching}</span><div className="bullet-stack">{lesson.adaptiveTips.map((item) => <div key={item} className="bullet-card">{item}</div>)}</div></article>
             </section>
 
             <section className="grid two-up">
               <article className="panel info-panel flashcards-panel">
-                <div className="section-heading"><span className="eyebrow">Flashcards</span><h2>Revise with quick flips</h2></div>
+                <div className="section-heading"><span className="eyebrow">{uiCopy.flashcards}</span><h2>{uiCopy.reviseQuick}</h2></div>
                 {activeFlashcard ? (
                   <>
                     <button className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} onClick={() => setFlashcardFlipped((current) => !current)}>
                       <span className="flashcard-face">{flashcardFlipped ? activeFlashcard.back : activeFlashcard.front}</span>
-                      <small>{flashcardFlipped ? "Tap to see prompt" : "Tap to reveal answer"}</small>
+                      <small>{flashcardFlipped ? uiCopy.tapPrompt : uiCopy.tapReveal}</small>
                     </button>
                     <div className="flashcard-nav">
-                      <button className="mini-button" onClick={() => { setActiveCardIndex((current) => Math.max(0, current - 1)); setFlashcardFlipped(false); }} disabled={activeCardIndex === 0}>Previous</button>
+                      <button className="mini-button" onClick={() => { setActiveCardIndex((current) => Math.max(0, current - 1)); setFlashcardFlipped(false); }} disabled={activeCardIndex === 0}>{uiCopy.previous}</button>
                       <span>{activeCardIndex + 1} / {flashcards.length}</span>
-                      <button className="mini-button" onClick={() => { setActiveCardIndex((current) => Math.min(flashcards.length - 1, current + 1)); setFlashcardFlipped(false); }} disabled={activeCardIndex === flashcards.length - 1}>Next</button>
+                      <button className="mini-button" onClick={() => { setActiveCardIndex((current) => Math.min(flashcards.length - 1, current + 1)); setFlashcardFlipped(false); }} disabled={activeCardIndex === flashcards.length - 1}>{uiCopy.next}</button>
                     </div>
                   </>
                 ) : null}
               </article>
 
               <article className="panel info-panel quiz-panel">
-                <div className="section-heading"><span className="eyebrow">Quiz Mode</span><h2>MCQ practice with hesitation tracking</h2></div>
-                <div className="quiz-score">Score: {quizScore} / {quizItems.length}</div>
+                <div className="section-heading"><span className="eyebrow">{uiCopy.quizMode}</span><h2>{uiCopy.quizTitle}</h2></div>
+                <div className="quiz-score">{uiCopy.score}: {quizScore} / {quizItems.length}</div>
                 <div className="quiz-list">
                   {quizItems.map((item, index) => (
                     <div key={item.id} className="quiz-question" onMouseEnter={() => handleQuizHover(item)} onMouseLeave={() => clearQuizHover(item.id)}>
                       <div className="quiz-question-head">
                         <strong>Q{index + 1}. {item.prompt}</strong>
-                        {slowQuestions.includes(item.id) ? <span className="slow-chip">Needs reteach</span> : null}
+                        {slowQuestions.includes(item.id) ? <span className="slow-chip">{uiCopy.needsReteach}</span> : null}
                       </div>
                       <div className="quiz-options">
                         {item.options.map((option, optionIndex) => {
@@ -369,37 +415,37 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                {hoverInsight ? <div className="coach-response"><span className="eyebrow">Eggzy noticed hesitation</span><p>{hoverInsight}</p></div> : null}
+                {hoverInsight ? <div className="coach-response"><span className="eyebrow">{uiCopy.hesitationTitle}</span><p>{hoverInsight}</p></div> : null}
               </article>
             </section>
 
             <section className="panel feedback-panel">
-              <div className="section-heading"><span className="eyebrow">Teach The Topic</span><h2>Write a full paragraph and let Eggzy spot missing ideas</h2></div>
+              <div className="section-heading"><span className="eyebrow">{uiCopy.teachTopicEyebrow}</span><h2>{uiCopy.teachTopicTitle}</h2></div>
               <div className="grid two-up">
                 <div className="question-box">
                   {lesson.checkInQuestions.map((question) => <div key={question} className="question-row">{question}</div>)}
                   <div className="toggle-row">
-                    <button className={`toggle-pill ${understood ? "active" : ""}`} onClick={() => setUnderstood(true)}>Yes, mostly</button>
-                    <button className={`toggle-pill ${!understood ? "active danger" : ""}`} onClick={() => setUnderstood(false)}>Not yet</button>
+                    <button className={`toggle-pill ${understood ? "active" : ""}`} onClick={() => setUnderstood(true)}>{uiCopy.yesMostly}</button>
+                    <button className={`toggle-pill ${!understood ? "active danger" : ""}`} onClick={() => setUnderstood(false)}>{uiCopy.notYet}</button>
                   </div>
-                  <div className="slow-summary">Slow questions tracked: {slowQuestions.length ? slowQuestions.length : "None yet"}</div>
+                  <div className="slow-summary">{uiCopy.slowQuestions}: {slowQuestions.length ? slowQuestions.length : uiCopy.noneYet}</div>
                 </div>
                 <div>
-                  <textarea className="input textarea dark" value={learnerExplanation} onChange={(event) => setLearnerExplanation(event.target.value)} rows={8} placeholder="Teach the topic back in a full paragraph. Eggzy will check what you explained well, what you missed, and what to reteach." />
-                  <input className="input dark" value={confusionArea} onChange={(event) => setConfusionArea(event.target.value)} placeholder="Still confused about..." />
-                  <button className="cta-button wide" onClick={() => void handleFeedbackSubmit()} disabled={feedbackLoading}>{feedbackLoading ? "Checking..." : "Evaluate Understanding"}</button>
+                  <textarea className="input textarea dark" value={learnerExplanation} onChange={(event) => setLearnerExplanation(event.target.value)} rows={8} placeholder={uiCopy.teachBackPlaceholder} />
+                  <input className="input dark" value={confusionArea} onChange={(event) => setConfusionArea(event.target.value)} placeholder={uiCopy.confusionPlaceholder} />
+                  <button className="cta-button wide" onClick={() => void handleFeedbackSubmit()} disabled={feedbackLoading}>{feedbackLoading ? uiCopy.checking : uiCopy.evaluateUnderstanding}</button>
                 </div>
               </div>
 
               {feedback ? (
                 <div className="teachback-grid grid two-up">
-                  <div className="coach-response"><span className="eyebrow">Eggzy says</span><p>{feedback.coachingResponse}</p><small>Concept overlap score: {feedback.overlapScore}</small></div>
+                  <div className="coach-response"><span className="eyebrow">{uiCopy.eggzySays}</span><p>{feedback.coachingResponse}</p><small>{uiCopy.overlapScore}: {feedback.overlapScore}</small></div>
                   <div className="panel insight-panel">
-                    <span className="eyebrow">Teach-back analysis</span>
+                    <span className="eyebrow">{uiCopy.teachBackAnalysis}</span>
                     <div className="bullet-stack">
-                      {feedback.strongPoints?.map((item) => <div key={item} className="bullet-card success-card">Strong: {item}</div>)}
-                      {feedback.missedConcepts?.map((item) => <div key={item} className="bullet-card warning-card">Missing: {item}</div>)}
-                      {feedback.reteachSteps?.map((item) => <div key={item} className="bullet-card">Reteach: {item}</div>)}
+                      {feedback.strongPoints?.map((item) => <div key={item} className="bullet-card success-card">{uiCopy.strong}: {item}</div>)}
+                      {feedback.missedConcepts?.map((item) => <div key={item} className="bullet-card warning-card">{uiCopy.missing}: {item}</div>)}
+                      {feedback.reteachSteps?.map((item) => <div key={item} className="bullet-card">{uiCopy.reteach}: {item}</div>)}
                     </div>
                   </div>
                 </div>
@@ -407,7 +453,7 @@ export default function App() {
 
               {feedback?.questionBank?.length ? (
                 <div className="question-bank panel">
-                  <div className="section-heading"><span className="eyebrow">Reverse Teaching Bank</span><h2>Questions created from weak spots and skipped ideas</h2></div>
+                  <div className="section-heading"><span className="eyebrow">{uiCopy.reverseTeachingBank}</span><h2>{uiCopy.reverseTeachingTitle}</h2></div>
                   <div className="bullet-stack">{feedback.questionBank.map((item) => <div key={item} className="bullet-card">{item}</div>)}</div>
                 </div>
               ) : null}
@@ -415,7 +461,7 @@ export default function App() {
           </div>
         ) : (
           <section className="panel library-panel">
-            <div className="section-heading"><span className="eyebrow">Starter Library</span><h2>Browse Eggzy's ready-made quests</h2></div>
+            <div className="section-heading"><span className="eyebrow">{uiCopy.starterLibraryEyebrow}</span><h2>{uiCopy.starterLibraryTitle}</h2></div>
             <div className="grid two-up">
               {topics.slice(0, 8).map((topic) => (
                 <article key={topic.slug} className="library-card"><small>{topic.category}</small><strong>{topic.title}</strong><p>{topic.shortSummary}</p></article>
@@ -668,6 +714,13 @@ const styles = `
 @media (max-width:1080px){.grid.three-up,.quiz-options,.level-grid,.grid.two-up,.teachback-grid{grid-template-columns:1fr}.hero-panel,.lesson-hero,.slide-shell{flex-direction:column}.nav-arrow{width:100%}.slide-card{min-height:320px}.slide-card h3{font-size:38px}.slide-card p{font-size:18px}}
 @media (max-width:720px){.page-frame{width:min(100% - 20px,1240px)}.topbar{flex-direction:column;align-items:flex-start}.brand-title{font-size:28px}.hero-copy h1{font-size:42px}.cta-button{width:100%}.input-shell{flex-direction:column}.flashcard-face{font-size:22px}}
 `;
+
+
+
+
+
+
+
 
 
 

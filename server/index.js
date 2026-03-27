@@ -3,6 +3,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { createDatabase, getTopicBySlug, listTopics } from "./db.js";
+import { DEFAULT_UI_COPY, LANGUAGE_OPTIONS } from "../shared/localization.js";
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -11,12 +12,36 @@ const geminiApiKey = process.env.GEMINI_API_KEY || "";
 const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 const groqApiKey = process.env.GROQ_API_KEY || "";
 const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+const uiCopyCache = new Map();
 
 app.use(cors());
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, seededTopics: listTopics(db).length, aiProvider: getAiProvider() });
+});
+
+app.get("/api/languages", (_req, res) => {
+  res.json({ languages: LANGUAGE_OPTIONS });
+});
+
+app.get("/api/ui-copy", async (req, res) => {
+  const code = String(req.query.language || "en").toLowerCase();
+  const languageMeta = LANGUAGE_OPTIONS.find((item) => item.code === code) || LANGUAGE_OPTIONS[0];
+  if (languageMeta.code === "en") {
+    return res.json({ copy: DEFAULT_UI_COPY });
+  }
+  if (uiCopyCache.has(languageMeta.code)) {
+    return res.json({ copy: uiCopyCache.get(languageMeta.code) });
+  }
+  try {
+    const copy = await translateUiCopy(languageMeta);
+    uiCopyCache.set(languageMeta.code, copy);
+    return res.json({ copy });
+  } catch (error) {
+    console.error("UI copy translation failed, using English:", error);
+    return res.json({ copy: DEFAULT_UI_COPY });
+  }
 });
 
 app.get("/api/topics", (_req, res) => {
@@ -764,5 +789,103 @@ function tokenize(text) {
 
 
 
+
+
+
+
+async function translateUiCopy(languageMeta) {
+  if (groqApiKey) {
+    return await translateJsonWithGroq(DEFAULT_UI_COPY, languageMeta.name);
+  }
+
+  if (geminiApiKey) {
+    return await translateJsonWithGemini(DEFAULT_UI_COPY, languageMeta.name);
+  }
+
+  return DEFAULT_UI_COPY;
+}
+
+async function translateJsonWithGroq(payload, targetLanguage) {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${groqApiKey}`,
+    },
+    body: JSON.stringify({
+      model: groqModel,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: "You translate JSON UI copy. Preserve every key exactly. Return valid JSON only.",
+        },
+        {
+          role: "user",
+          content: `Translate every string value in this JSON object into ${targetLanguage}. Keep the brand name Eggzy unchanged. Preserve keys, nesting, and tone for an educational product. JSON: ${JSON.stringify(payload)}`,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Groq UI copy error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content?.trim();
+  if (!text) {
+    throw new Error("Groq returned no UI copy content.");
+  }
+
+  return mergeUiCopy(JSON.parse(text));
+}
+
+async function translateJsonWithGemini(payload, targetLanguage) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: `Translate every string value in this JSON object into ${targetLanguage}. Keep the brand name Eggzy unchanged. Preserve keys, nesting, and tone. Return valid JSON only. JSON: ${JSON.stringify(payload)}` }] }],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: "application/json",
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini UI copy error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+  if (!text) {
+    throw new Error("Gemini returned no UI copy content.");
+  }
+
+  return mergeUiCopy(JSON.parse(text));
+}
+
+function mergeUiCopy(copy) {
+  return {
+    ...DEFAULT_UI_COPY,
+    ...copy,
+    moods: {
+      ...DEFAULT_UI_COPY.moods,
+      ...(copy?.moods || {}),
+    },
+    styles: {
+      ...DEFAULT_UI_COPY.styles,
+      ...(copy?.styles || {}),
+    },
+  };
+}
 
 
