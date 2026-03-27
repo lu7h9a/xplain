@@ -34,6 +34,8 @@ export default function App() {
   const [topics, setTopics] = useState(DEFAULT_TOPICS);
   const [activeLevel, setActiveLevel] = useState("beginner");
   const [learnerName, setLearnerName] = useState("");
+  const [interest, setInterest] = useState("");
+  const [language, setLanguage] = useState("English");
   const [mood, setMood] = useState("focused");
   const [preferredStyle, setPreferredStyle] = useState("analogy");
   const [confusionPattern, setConfusionPattern] = useState("");
@@ -44,6 +46,8 @@ export default function App() {
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [understood, setUnderstood] = useState(true);
+  const [hoveredQuizId, setHoveredQuizId] = useState(null);
+  const [hoverInsight, setHoverInsight] = useState("");
   const [learnerExplanation, setLearnerExplanation] = useState("");
   const [confusionArea, setConfusionArea] = useState("");
   const [error, setError] = useState("");
@@ -89,6 +93,8 @@ export default function App() {
           learnerLevel: activeLevel,
           mood,
           preferredStyle,
+          interest,
+          language,
           confusionPattern,
           previousBehavior,
         }),
@@ -106,6 +112,8 @@ export default function App() {
         learnerLevel: activeLevel,
         mood,
         preferredStyle,
+        interest,
+        language,
         confusionPattern,
         previousBehavior,
       });
@@ -131,9 +139,9 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unable to save feedback");
-      setFeedback(data);
+      setFeedback({ ...data, questionBank: buildQuestionBank(lesson, confusionArea), quiz: buildQuizQuestions(lesson, interest) });
     } catch {
-      setFeedback(createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson }));
+      setFeedback(createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson, interest }));
     } finally {
       setFeedbackLoading(false);
     }
@@ -197,6 +205,8 @@ export default function App() {
         <section className="panel profile-panel">
           <div className="section-heading"><span className="eyebrow">Learner Setup</span><h2>Tell Eggzy how you learn best</h2></div>
           <div className="grid two-up">
+            <Field label="Interest hook"><input className="input" value={interest} onChange={(event) => setInterest(event.target.value)} placeholder="Example: cricket lover, gamer, artist" /></Field>
+            <Field label="Language"><input className="input" value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="Example: English, Hindi, Telugu" /></Field>
             <Field label="Learner name"><input className="input" value={learnerName} onChange={(event) => setLearnerName(event.target.value)} placeholder="Optional" /></Field>
             <Field label="Current mental state"><select className="input" value={mood} onChange={(event) => setMood(event.target.value)}>{MOODS.map((option) => <option key={option} value={option}>{capitalize(option)}</option>)}</select></Field>
             <Field label="Preferred explanation style"><select className="input" value={preferredStyle} onChange={(event) => setPreferredStyle(event.target.value)}>{STYLES.map((option) => <option key={option} value={option}>{capitalize(option)}</option>)}</select></Field>
@@ -251,6 +261,8 @@ export default function App() {
                 <div className="snapshot-line"><span>Level</span><strong>{capitalize(lesson.learnerSnapshot.level)}</strong></div>
                 <div className="snapshot-line"><span>Mood</span><strong>{capitalize(lesson.learnerSnapshot.mood)}</strong></div>
                 <div className="snapshot-line"><span>Style</span><strong>{capitalize(lesson.learnerSnapshot.preferredStyle)}</strong></div>
+                <div className="snapshot-line"><span>Language</span><strong>{lesson.learnerSnapshot.language || "English"}</strong></div>
+                <div className="snapshot-line"><span>Interest</span><strong>{lesson.learnerSnapshot.interest || "General"}</strong></div>
               </div>
             </section>
 
@@ -293,6 +305,41 @@ export default function App() {
                 </div>
               </div>
               {feedback ? <div className="coach-response"><span className="eyebrow">Eggzy says</span><p>{feedback.coachingResponse}</p><small>Concept overlap score: {feedback.overlapScore}</small></div> : null}
+
+              {feedback?.questionBank?.length ? (
+                <div className="question-bank panel">
+                  <div className="section-heading"><span className="eyebrow">Reverse Teaching Bank</span><h2>Questions created from your weak spots</h2></div>
+                  <div className="bullet-stack">{feedback.questionBank.map((item) => <div key={item} className="bullet-card">{item}</div>)}</div>
+                </div>
+              ) : null}
+
+              {feedback?.quiz?.length ? (
+                <div className="question-bank panel quiz-panel">
+                  <div className="section-heading"><span className="eyebrow">Proctored Quiz Mode</span><h2>Hover analytics quiz</h2></div>
+                  <p className="quiz-note">If you stay too long on a question, Eggzy assumes confusion and gives a chalkboard hint again.</p>
+                  <div className="bullet-stack">
+                    {feedback.quiz.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`bullet-card quiz-card ${hoveredQuizId === item.id ? "active" : ""}`}
+                        onMouseEnter={() => {
+                          setHoveredQuizId(item.id);
+                          window.clearTimeout(window.__eggzyHoverTimer);
+                          window.__eggzyHoverTimer = window.setTimeout(() => setHoverInsight(item.hint), 1800);
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredQuizId(null);
+                          window.clearTimeout(window.__eggzyHoverTimer);
+                        }}
+                      >
+                        <strong>{item.prompt}</strong>
+                        <span>{item.options.join(" ? ")}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {hoverInsight ? <div className="coach-response"><span className="eyebrow">Dual Time Analytics</span><p>{hoverInsight}</p></div> : null}
+                </div>
+              ) : null}
             </section>
           </div>
         ) : (
@@ -354,7 +401,7 @@ function capitalize(value) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function createLocalLesson({ topic, learnerLevel, mood, preferredStyle, confusionPattern, previousBehavior }) {
+function createLocalLesson({ topic, learnerLevel, mood, preferredStyle, interest, language, confusionPattern, previousBehavior }) {
   const tone = getMoodTone(mood);
   const styleLens = getStyleLens(preferredStyle);
   const levelGuide = getLevelGuide(learnerLevel);
@@ -369,7 +416,7 @@ function createLocalLesson({ topic, learnerLevel, mood, preferredStyle, confusio
       realWorldExample: `Imagine using ${title} in a practical real-life scenario where its result becomes easy to observe.`,
       summary: `${title} becomes easier when you connect the big idea, the process, and one concrete example.`,
     },
-    learnerSnapshot: { level: learnerLevel, mood, preferredStyle, confusionPattern, previousBehavior },
+    learnerSnapshot: { level: learnerLevel, mood, preferredStyle, interest, language, confusionPattern, previousBehavior },
     stages: [
       { id: "foundation", title: "Foundation", body: `${levelGuide.foundationLead} ${title} matters because it helps explain or solve something important.` },
       { id: "core", title: "Core Idea", body: `${styleLens.coreFraming} ${title} has a core purpose and a set of parts that work together toward a result.` },
@@ -377,6 +424,11 @@ function createLocalLesson({ topic, learnerLevel, mood, preferredStyle, confusio
       { id: "example", title: "Real-World Example", body: `${styleLens.exampleLead} ${summary}` },
       { id: "summary", title: "Summary", body: `${tone.memoryCue} ${title} is easiest to remember as purpose + process + example.` },
     ],
+    learningModes: {
+      analogy: `${styleLens.beginnerLead} ${title} becomes easier if you imagine it through ${interest || "everyday life"}.`,
+      stepByStep: `${levelGuide.processHint} Start with the foundation, then identify the moving parts, then connect them in sequence.`,
+      realLife: `${styleLens.exampleLead} Think about ${title} in a real-world scenario tied to ${interest || "daily life"}.`,
+    },
     levelExplanations: {
       child: `${tone.encouragement} Think of ${title} like a helpful tool with one big job. First we learn what it does, then we see the steps, then we try a simple example.`,
       beginner: `${styleLens.beginnerLead} ${title} makes more sense when you define the key idea clearly, follow the steps in order, and connect it to a real use case.`,
@@ -392,11 +444,11 @@ function createLocalLesson({ topic, learnerLevel, mood, preferredStyle, confusio
   };
 }
 
-function createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson }) {
+function createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson, interest }) {
   const overlapScore = scoreExplanation(learnerExplanation, `${lesson?.topic?.summary || ""} ${lesson?.topic?.shortSummary || ""}`);
-  if (confusionArea.trim()) return { overlapScore, nextAction: "reteach", coachingResponse: `Focus on "${confusionArea}" first. Re-read the core idea and explain it again in two short sentences.` };
-  if (understood && overlapScore >= 0.2) return { overlapScore, nextAction: "advance", coachingResponse: "Nice work. Your explanation is capturing the main idea. Try comparing the foundation stage to the process stage to deepen your understanding." };
-  return { overlapScore, nextAction: "reteach", coachingResponse: `Let's simplify it one more step. Start with the purpose of ${lesson?.topic?.title || "the topic"}, then describe only one key step in the process.` };
+  if (confusionArea.trim()) return { overlapScore, nextAction: "reteach", coachingResponse: `Focus on "${confusionArea}" first. Re-read the core idea and explain it again in two short sentences.`, questionBank: buildQuestionBank(lesson, confusionArea), quiz: buildQuizQuestions(lesson, interest) };
+  if (understood && overlapScore >= 0.2) return { overlapScore, nextAction: "advance", coachingResponse: "Nice work. Your explanation is capturing the main idea. Try comparing the foundation stage to the process stage to deepen your understanding.", questionBank: buildQuestionBank(lesson, confusionArea), quiz: buildQuizQuestions(lesson, interest) };
+  return { overlapScore, nextAction: "reteach", coachingResponse: `Let's simplify it one more step. Start with the purpose of ${lesson?.topic?.title || "the topic"}, then describe only one key step in the process.`, questionBank: buildQuestionBank(lesson, confusionArea), quiz: buildQuizQuestions(lesson, interest) };
 }
 
 function getMoodTone(mood) {
@@ -428,6 +480,26 @@ function getLevelGuide(level) {
   return levelsMap[level] || levelsMap.beginner;
 }
 
+function buildQuestionBank(lesson, confusionArea) {
+  const title = lesson?.topic?.title || "the topic";
+  const weakSpot = confusionArea || lesson?.confusionHotspots?.[0] || "the core idea";
+  return [
+    `What is the main purpose of ${title}?`,
+    `Explain ${weakSpot} in your own words.`,
+    `How would you connect ${title} to a real-life example?`,
+    `What would you teach first to a beginner learning ${title}?`,
+  ];
+}
+
+function buildQuizQuestions(lesson, interest) {
+  const title = lesson?.topic?.title || "the topic";
+  return [
+    { id: "q1", prompt: `Which option best describes the core idea of ${title}?`, options: ["Definition", "Mechanism", "Outcome", "All three together"], hint: `Pause here means the question may be unclear. Revisit the core idea of ${title} and connect it to ${interest || "a familiar example"}.` },
+    { id: "q2", prompt: `What should come first when explaining ${title}?`, options: ["Formula", "Foundation", "Edge case", "Advanced jargon"], hint: `If you are hovering here, Eggzy thinks the sequence is the issue. Start from the foundation before the details.` },
+    { id: "q3", prompt: `Which explanation style helps lock in understanding?`, options: ["Analogy", "Step-by-step", "Real-life example", "All of them together"], hint: `This question checks layered understanding. Eggzy teaches with analogy, process, and real-world application together.` },
+  ];
+}
+
 function scoreExplanation(learnerText, referenceText) {
   const learnerTokens = tokenize(learnerText);
   const referenceTokens = new Set(tokenize(referenceText));
@@ -442,7 +514,7 @@ function tokenize(text) {
 }
 
 const styles = `
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&family=Schoolbell&display=swap');
 :root { --bg:#0b1713; --bg-soft:#11211b; --panel:#14271f; --panel-2:#1a3127; --panel-3:#20392d; --text:#f6fff7; --muted:#b2c7b8; --line:rgba(223,241,228,0.12); --shadow:0 18px 50px rgba(0,0,0,0.30); --lime:#58cc02; --lime-deep:#46a302; --sun:#ffd84a; --sky:#7cb8ff; --danger:#ff6b6b; }
 :root[data-theme="light"] { --bg:#f7f1de; --bg-soft:#efe6cb; --panel:#fffdf5; --panel-2:#faf4e3; --panel-3:#f3ecd8; --text:#1d241d; --muted:#6f7668; --line:rgba(72,61,38,0.10); --shadow:0 18px 50px rgba(96,82,49,0.10); --lime:#58cc02; --lime-deep:#46a302; --sun:#ffca3a; --sky:#4d8ff7; --danger:#f25f5c; }
 *{box-sizing:border-box} body{margin:0;font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text)} button,input,textarea,select{font:inherit}
@@ -450,20 +522,20 @@ const styles = `
 .background-orb{position:fixed;border-radius:999px;filter:blur(80px);opacity:.25;pointer-events:none}.orb-one{width:340px;height:340px;background:var(--lime);top:-100px;left:-80px}.orb-two{width:280px;height:280px;background:var(--sun);right:-80px;top:160px}
 .page-frame{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:28px 0 72px;position:relative;z-index:1}.topbar,.hero-panel,.mission-strip,.grid,.level-grid,.tabs,.toggle-row,.hero-stats,.pill-row,.brand-wrap{display:flex;gap:16px}.topbar,.hero-panel,.mission-strip,.toggle-row{align-items:center}.topbar,.hero-panel{justify-content:space-between}.hero-panel,.mission-strip,.lesson-stack{margin-top:22px}.grid,.level-grid,.topic-grid,.bullet-stack{display:grid}
 .brand-chip,.theme-toggle,.panel,.mission-card,.level-card,.topic-chip,.stat-card,.library-card,.stage-card,.bullet-card,.error-banner,.snapshot-card,.explanation-card,.question-box,.coach-response{border:2px solid var(--line);box-shadow:var(--shadow)}
-.brand-chip{width:66px;height:66px;border-radius:22px;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);display:grid;place-items:center}.brand-title{font-size:34px;font-weight:900;line-height:1}.brand-subtitle{color:var(--muted);font-size:14px}.theme-toggle{border-radius:999px;background:var(--panel);color:var(--text);padding:12px 18px;display:flex;gap:18px;align-items:center;cursor:pointer;font-weight:800}
-.hero-panel{align-items:stretch;gap:24px}.hero-copy,.hero-mascot-card,.panel,.mission-card,.lesson-hero,.active-explainer,.feedback-panel{background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);border-radius:28px;padding:26px;position:relative}.hero-copy{flex:1.2;min-width:0}.hero-copy h1{margin:12px 0 14px;font-size:clamp(42px,6vw,72px);line-height:.95;letter-spacing:-.04em;text-shadow:0 2px 0 rgba(0,0,0,0.15)}.hero-copy p{color:var(--muted);font-size:18px;line-height:1.7;max-width:680px}.hero-mascot-card{flex:.8;min-width:320px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center}
+.brand-chip{width:66px;height:66px;border-radius:22px;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);display:grid;place-items:center}.brand-title{font-size:34px;font-weight:900;line-height:1;font-family:'Schoolbell',cursive}.brand-subtitle{color:var(--muted);font-size:14px}.theme-toggle{border-radius:999px;background:var(--panel);color:var(--text);padding:12px 18px;display:flex;gap:18px;align-items:center;cursor:pointer;font-weight:800}
+.hero-panel{align-items:stretch;gap:24px}.hero-copy,.hero-mascot-card,.panel,.mission-card,.lesson-hero,.active-explainer,.feedback-panel{background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);border-radius:28px;padding:26px;position:relative}.hero-copy{flex:1.2;min-width:0}.hero-copy h1{margin:12px 0 14px;font-size:clamp(42px,6vw,72px);line-height:.95;letter-spacing:-.04em;text-shadow:0 2px 0 rgba(0,0,0,0.15);font-family:'Schoolbell',cursive}.hero-copy p{color:var(--muted);font-size:18px;line-height:1.7;max-width:680px}.hero-mascot-card{flex:.8;min-width:320px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center}
 .mascot-badge,.pill,.eyebrow,.field-label,.mission-eyebrow{text-transform:uppercase;letter-spacing:.16em;font-size:11px;font-weight:900}.mascot-badge,.pill{background:rgba(255,255,255,.06);color:var(--text);border-radius:999px;padding:10px 14px}.pill-green{background:rgba(88,204,2,.18)}.pill-blue{background:rgba(102,169,255,.18)}.hero-stats{margin-top:24px;flex-wrap:wrap}.stat-card{min-width:120px;border-radius:24px;background:var(--panel-3);padding:18px}.stat-card strong{display:block;font-size:30px;font-weight:900}.stat-card span{color:var(--muted)}.mascot-caption{display:grid;gap:6px;margin-top:10px}.mascot-caption span{color:var(--muted);line-height:1.6}
 .mission-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.mission-card{min-height:164px}.mission-card strong{display:block;font-size:23px;margin:12px 0 8px}.mission-card p{color:var(--muted);margin:0;line-height:1.6}.mission-card.lime{background:linear-gradient(180deg,rgba(88,204,2,.10),var(--panel));box-shadow:inset 0 0 0 1px rgba(88,204,2,.12),var(--shadow)}.mission-card.yellow{background:linear-gradient(180deg,rgba(255,216,74,.10),var(--panel));box-shadow:inset 0 0 0 1px rgba(255,216,74,.12),var(--shadow)}.mission-card.blue{background:linear-gradient(180deg,rgba(124,184,255,.10),var(--panel));box-shadow:inset 0 0 0 1px rgba(124,184,255,.12),var(--shadow)}
-.panel{margin-top:22px}.section-heading{margin-bottom:18px}.section-heading h2{margin:8px 0 0;font-size:32px}.eyebrow,.field-label,.mission-eyebrow{color:var(--muted)}.grid.two-up{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.lesson-stage-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.field-wrap{display:grid;gap:8px}
+.panel{margin-top:22px}.section-heading{margin-bottom:18px}.section-heading h2{margin:8px 0 0;font-size:32px;font-family:'Schoolbell',cursive}.eyebrow,.field-label,.mission-eyebrow{color:var(--muted)}.grid.two-up{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.lesson-stage-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.field-wrap{display:grid;gap:8px}
 .input-shell{display:flex;border:2px solid var(--line);background:var(--panel-3);border-radius:24px;overflow:hidden;transition:.2s ease}.input-shell.focused{transform:translateY(-1px);border-color:rgba(88,204,2,.45);box-shadow:0 0 0 4px rgba(88,204,2,.12)}.input,.concept-input{width:100%;border:2px solid var(--line);border-radius:20px;background:var(--panel-3);color:var(--text);padding:15px 16px;outline:none}.concept-input{border:0;border-radius:0;background:transparent;padding:19px 20px}.input::placeholder,.concept-input::placeholder,.textarea::placeholder{color:var(--muted)}.textarea{resize:vertical;min-height:120px}.dark{background:rgba(255,255,255,.05)}
 .cta-button{border:0;border-bottom:5px solid var(--lime-deep);border-radius:18px;background:var(--lime);color:#fff;padding:16px 22px;font-weight:900;letter-spacing:.02em;cursor:pointer;align-self:flex-start}.cta-button:disabled{cursor:not-allowed;opacity:.65}.cta-button.wide{width:100%;margin-top:14px}
 .topic-grid{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}.topic-chip{background:var(--panel-3);color:var(--text);border-radius:22px;padding:14px 16px;text-align:left;cursor:pointer}.topic-chip span{display:block;font-weight:800;margin-bottom:4px}.topic-chip small{color:var(--muted)}
 .level-grid{margin-top:22px;grid-template-columns:repeat(3,minmax(0,1fr))}.level-card{background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);color:var(--text);border-radius:26px;padding:24px;text-align:left;cursor:pointer}.level-card.active{transform:translateY(-4px);box-shadow:0 22px 52px rgba(0,0,0,.28)}.level-bar{width:42px;height:6px;border-radius:999px;margin-bottom:16px}.level-card strong{font-size:24px;display:block}.level-card span,.level-card p{color:var(--muted)}
 .error-banner{margin-top:18px;background:rgba(255,107,107,.14);border-radius:18px;padding:16px 18px;color:#ffdede}.lesson-stack{display:grid;gap:22px}.lesson-hero{display:flex;justify-content:space-between;gap:20px;align-items:start}.lesson-hero h2{margin:8px 0 10px;font-size:38px}.lesson-hero p{color:var(--muted);line-height:1.7;max-width:680px}.snapshot-card{min-width:220px;border-radius:24px;background:var(--panel-3);padding:18px}.snapshot-line{display:flex;justify-content:space-between;margin-top:10px;gap:12px}.snapshot-line span{color:var(--muted)}
 .tabs{flex-wrap:wrap;margin-bottom:16px}.tab{border:2px solid var(--line);background:var(--panel-3);color:var(--text);border-radius:18px;padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer}.tab.active{background:rgba(88,204,2,.14)}.tab small{color:var(--muted);display:block}.dot{width:12px;height:12px;border-radius:999px}.explanation-card{border-width:2px;border-style:solid;border-radius:26px;background:var(--panel-3);padding:24px}.explanation-card p{margin:10px 0 0;color:var(--text);line-height:1.9;font-size:17px}
-.stage-card,.info-panel,.library-card{border-radius:24px;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);padding:22px}.stage-card p,.library-card p{color:var(--muted);line-height:1.7}.library-card strong{display:block;font-size:24px;margin:8px 0}.library-card small{color:var(--sun);font-weight:800}.bullet-stack{gap:10px;margin-top:12px}.bullet-card{border-radius:18px;background:var(--panel-3);padding:14px 15px;line-height:1.5}.hero-copy::before,.panel::before,.mission-card::before,.library-card::before,.stage-card::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:repeating-linear-gradient(175deg,transparent 0 18px,rgba(255,255,255,0.015) 18px 19px,transparent 19px 36px);opacity:.7}
+.stage-card,.info-panel,.library-card,.question-bank{border-radius:24px;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);padding:22px}.stage-card p,.library-card p{color:var(--muted);line-height:1.7}.library-card strong{display:block;font-size:24px;margin:8px 0}.library-card small{color:var(--sun);font-weight:800}.bullet-stack{gap:10px;margin-top:12px}.bullet-card{border-radius:18px;background:var(--panel-3);padding:14px 15px;line-height:1.5}.hero-copy::before,.panel::before,.mission-card::before,.library-card::before,.stage-card::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:repeating-linear-gradient(175deg,transparent 0 18px,rgba(255,255,255,0.015) 18px 19px,transparent 19px 36px);opacity:.7}
 .feedback-panel{margin-bottom:10px}.question-box{border-radius:24px;background:var(--panel-3);padding:18px}.question-row{padding:12px 0;border-bottom:1px solid var(--line);line-height:1.6}.question-row:last-child{border-bottom:0}.toggle-row{margin-top:18px;flex-wrap:wrap}.toggle-pill{border:2px solid var(--line);border-radius:999px;background:var(--panel);color:var(--text);padding:12px 16px;font-weight:800;cursor:pointer}.toggle-pill.active{background:rgba(88,204,2,.16);border-color:rgba(88,204,2,.38)}.toggle-pill.danger.active{background:rgba(255,107,107,.14);border-color:rgba(255,107,107,.35)}
-.coach-response{margin-top:20px;border-radius:24px;background:rgba(88,204,2,.12);padding:18px}.coach-response p{margin:8px 0;line-height:1.7}.coach-response small{color:var(--muted)}.eggzy{width:240px;max-width:100%}.eggzy.compact{width:42px}
+.coach-response{margin-top:20px;border-radius:24px;background:rgba(88,204,2,.12);padding:18px}.coach-response p{margin:8px 0;line-height:1.7}.coach-response small{color:var(--muted)}.learning-modes{margin-top:0}.chalk-mode p{font-family:'Schoolbell',cursive;font-size:22px;line-height:1.55}.quiz-note{color:var(--muted);margin:-4px 0 14px}.quiz-card{display:grid;gap:6px;cursor:pointer}.quiz-card strong{font-size:18px}.quiz-card span{color:var(--muted)}.quiz-card.active{border-color:rgba(255,216,74,.4);box-shadow:0 0 0 3px rgba(255,216,74,.08),var(--shadow)}.eggzy{width:260px;max-width:100%}.eggzy.compact{width:42px}
 @media (max-width:960px){.hero-panel,.lesson-hero{flex-direction:column}.mission-strip,.level-grid,.grid.two-up,.lesson-stage-grid{grid-template-columns:1fr}.hero-mascot-card{min-width:0}}
 @media (max-width:720px){.page-frame{width:min(100% - 20px,1180px)}.topbar{flex-direction:column;align-items:flex-start}.brand-title{font-size:28px}.hero-copy h1{font-size:42px}.cta-button{width:100%}.input-shell{flex-direction:column}}
 `;
