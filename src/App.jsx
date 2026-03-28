@@ -510,7 +510,7 @@ export default function App() {
               </div>
               <div className="topic-grid">
                 {topics.slice(0, 12).map((topic) => (
-                  <button key={topic.slug} className="topic-chip" onClick={() => { setConcept(topic.title); void handleExplain(topic.title); }}>
+                  <button type="button" key={topic.slug} className="topic-chip" onClick={() => { setConcept(topic.title); void handleExplain(topic.title); }}>
                     <span>{topic.title}</span><small>{topic.category}</small>
                   </button>
                 ))}
@@ -528,7 +528,7 @@ export default function App() {
                 <span className="eyebrow">{uiCopy.currentMission}</span>
                 <h2>{lesson.topic.title}</h2>
                 <p>{lesson.topic.shortSummary}</p>
-                <div className="action-row top-gap"><button className="mini-button secondary-button" onClick={() => { setLesson(null); setSessionId(null); setFeedback(null); setLessonPhase("explanation"); }}>{uiCopy.chooseConceptTitle}</button></div>
+                <div className="action-row top-gap"><button type="button" className="mini-button secondary-button" onClick={() => { setLesson(null); setSessionId(null); setFeedback(null); setLessonPhase("explanation"); }}>{uiCopy.chooseConceptTitle}</button></div>
               </div>
               <div className="snapshot-card">
                 <span className="eyebrow">{uiCopy.learnerSnapshot}</span>
@@ -594,15 +594,15 @@ export default function App() {
                     <span className="eyebrow">{uiCopy.revisionHub}</span>
                     <strong>{uiCopy.quizChoiceTitle}</strong>
                     <p>{uiCopy.quizChoiceBody}</p>
-                    <label className="count-picker"><span>No. of questions</span><select className="input" value={quizTarget} onChange={(event) => setQuizTarget(Number(event.target.value))}>{QUIZ_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-                    <button className="cta-button revision-open" onClick={() => void openQuizMode()}>{uiCopy.openQuiz}</button>
+                    <label className="count-picker"><span>No. of questions</span><select className="input" value={quizTarget} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); setQuizTarget(Number(event.target.value)); }}>{QUIZ_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                    <button type="button" className="cta-button revision-open" onClick={() => void openQuizMode()}>{uiCopy.openQuiz}</button>
                   </div>
                   <div className={`path-card ${lessonPhase === "flashcards" ? "active" : ""}`}>
                     <span className="eyebrow">{uiCopy.revisionHub}</span>
                     <strong>{uiCopy.flashcardChoiceTitle}</strong>
                     <p>{uiCopy.flashcardChoiceBody}</p>
-                    <label className="count-picker"><span>No. of flashcards</span><select className="input" value={flashcardTarget} onChange={(event) => setFlashcardTarget(Number(event.target.value))}>{FLASHCARD_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-                    <button className="cta-button revision-open" onClick={() => void openFlashcardsMode()}>{uiCopy.openFlashcards}</button>
+                    <label className="count-picker"><span>No. of flashcards</span><select className="input" value={flashcardTarget} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); setFlashcardTarget(Number(event.target.value)); }}>{FLASHCARD_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                    <button type="button" className="cta-button revision-open" onClick={() => void openFlashcardsMode()}>{uiCopy.openFlashcards}</button>
                   </div>
                 </div>
               </section>
@@ -625,7 +625,7 @@ export default function App() {
                           const correct = quizSubmitted && optionIndex === item.correctAnswer;
                           const wrong = quizSubmitted && selected && quizAnswers[item.id] !== item.correctAnswer;
                           return (
-                            <button key={option} className={`quiz-option ${selected ? "selected" : ""} ${correct ? "correct" : ""} ${wrong ? "wrong" : ""}`} onClick={() => setQuizAnswers((current) => ({ ...current, [item.id]: optionIndex }))}>
+                            <button type="button" key={option} className={`quiz-option ${selected ? "selected" : ""} ${correct ? "correct" : ""} ${wrong ? "wrong" : ""}`} onClick={() => setQuizAnswers((current) => ({ ...current, [item.id]: optionIndex }))}>
                               {option}
                             </button>
                           );
@@ -646,7 +646,7 @@ export default function App() {
                     <p>{quizPerfect ? uiCopy.quizPerfectBody : uiCopy.quizRetryBody}</p>
                     <div className="action-row">
                       {quizPerfect ? <button className="cta-button" onClick={() => setLessonPhase("teachback")}>{uiCopy.proceedToTeachBack}</button> : null}
-                      {quizNeedsRevision ? <button className="mini-button secondary-button" onClick={() => void handleRefreshQuiz()}>{uiCopy.retryWithFreshQuiz}</button> : null}
+                      {quizNeedsRevision ? <button type="button" className="mini-button secondary-button" onClick={() => void handleRefreshQuiz()}>{uiCopy.retryWithFreshQuiz}</button> : null}
                       {quizNeedsRevision ? <button className="mini-button secondary-button" onClick={() => setLessonPhase("flashcards")}>{uiCopy.reviewWithFlashcards}</button> : null}
                       {quizNeedsRevision ? <button className="mini-button secondary-button" onClick={() => void handleReteachDifferent()}>{uiCopy.reteachDifferently}</button> : null}
                     </div>
@@ -672,8 +672,8 @@ export default function App() {
                   </>
                 ) : null}
                 <div className="action-row">
-                  <button className="cta-button" onClick={() => void openQuizMode()}>{uiCopy.continueToQuiz}</button>
-                  <button className="mini-button secondary-button" onClick={() => void handleRefreshFlashcards()}>{uiCopy.refreshFlashcards}</button>
+                  <button type="button" className="cta-button" onClick={() => void openQuizMode()}>{uiCopy.continueToQuiz}</button>
+                  <button type="button" className="mini-button secondary-button" onClick={() => void handleRefreshFlashcards()}>{uiCopy.refreshFlashcards}</button>
                   <button className="mini-button secondary-button" onClick={() => setLessonPhase("explanation")}>{uiCopy.backToExplanation}</button>
                 </div>
               </section>
@@ -992,7 +992,7 @@ const styles = `
 .slide-shell{align-items:stretch}.slide-card{flex:1;min-height:420px;display:flex;flex-direction:column;justify-content:center;padding:38px}.slide-card h3{font-family:'Schoolbell',cursive;font-size:52px;margin:0 0 18px}.slide-card p{font-size:22px;color:var(--text);line-height:2}.slide-progress{color:var(--sun);font-weight:900;text-transform:uppercase;letter-spacing:.14em;margin-bottom:12px}.progress-dots{flex-wrap:wrap;margin-top:14px}.progress-dot{background:var(--panel-3);border-bottom-color:rgba(255,255,255,.18);padding:10px 14px}.progress-dot.active{background:var(--lime)}
 .bullet-stack{gap:10px;margin-top:12px}.bullet-card{border-radius:18px;background:var(--panel-3);padding:14px 15px;line-height:1.6}.success-card{background:rgba(88,204,2,.14)}.warning-card{background:rgba(255,216,74,.12)}
 .action-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}.top-gap{margin-top:14px}.choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.path-card{border:2px solid var(--line);border-radius:26px;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);color:var(--text);padding:24px;text-align:left;cursor:pointer;transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;box-shadow:var(--shadow)}.path-card:hover,.path-card.active{transform:translateY(-4px);border-color:rgba(88,204,2,.45)}.path-card strong{display:block;font-size:28px;margin:12px 0 10px}.path-card p{margin:0;color:var(--muted);line-height:1.7}.path-cta{display:inline-flex;margin-top:18px;font-weight:900;color:var(--sun)}.flashcards-panel .flashcard{width:100%;min-height:260px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:var(--panel-3);color:var(--text);cursor:pointer}.flashcard-face{font-size:28px;line-height:1.6}.flashcard small{margin-top:16px;color:var(--muted)}.flashcard.flipped{border-color:rgba(255,216,74,.45)}.flashcard-nav{justify-content:space-between;margin-top:14px}
-.quiz-score{font-weight:900;color:var(--sun);margin-bottom:14px}.quiz-list{gap:14px}.quiz-question{display:grid;gap:14px}.quiz-options{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.quiz-option{background:var(--panel-3);border-bottom-color:rgba(255,255,255,.18);text-align:left}.quiz-option.selected{outline:2px solid rgba(255,255,255,.18)}.quiz-option.correct{background:rgba(88,204,2,.18);border-bottom-color:var(--lime)}.quiz-option.wrong{background:rgba(255,107,107,.16);border-bottom-color:#db5a5a}.slow-chip{background:rgba(255,216,74,.16);color:var(--sun);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800}
+.quiz-score{font-weight:900;color:var(--sun);margin-bottom:14px}.quiz-list{gap:14px}.quiz-question{display:grid;gap:14px}.quiz-options{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.quiz-option{background:var(--panel-3);border-bottom-color:rgba(255,255,255,.18);text-align:left}.quiz-option.selected{background:rgba(124,184,255,.18);border-bottom-color:var(--sky);box-shadow:0 0 0 2px rgba(124,184,255,.18) inset}.quiz-option.correct{background:rgba(88,204,2,.18);border-bottom-color:var(--lime)}.quiz-option.wrong{background:rgba(255,107,107,.16);border-bottom-color:#db5a5a}.slow-chip{background:rgba(255,216,74,.16);color:var(--sun);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800}
 .question-box{border-radius:24px;background:var(--panel-3);padding:18px}.question-row{padding:12px 0;border-bottom:1px solid var(--line);line-height:1.6}.question-row:last-child{border-bottom:0}.toggle-row{margin-top:18px;flex-wrap:wrap}.toggle-pill{border:2px solid var(--line);border-radius:999px;background:var(--panel);color:var(--text);padding:12px 16px;font-weight:800;cursor:pointer}.toggle-pill.active{background:rgba(88,204,2,.16);border-color:rgba(88,204,2,.38)}.toggle-pill.danger.active{background:rgba(255,107,107,.14);border-color:rgba(255,107,107,.35)}.slow-summary{margin-top:18px;color:var(--muted)}
 .coach-response{margin-top:20px;border-radius:24px;background:rgba(88,204,2,.12);padding:18px}.coach-response small{color:var(--muted)}.quiz-summary-card{background:rgba(124,184,255,.12)}.teachback-grid{margin-top:16px}.eggzy{width:260px;max-width:100%}.eggzy.compact{width:42px}
 @media (max-width:1080px){.grid.three-up,.quiz-options,.level-grid,.grid.two-up,.teachback-grid,.choice-grid,.dashboard-grid{grid-template-columns:1fr}.hero-panel,.lesson-hero,.slide-shell{flex-direction:column}.nav-arrow{width:100%}.slide-card{min-height:320px}.slide-card h3{font-size:38px}.slide-card p{font-size:18px}}
