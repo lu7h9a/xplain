@@ -12,6 +12,14 @@ export const supabase = hasSupabaseConfig ? createClient(supabaseUrl, supabaseAn
   },
 }) : null;
 
+function requireSupabase() {
+  if (!supabase) {
+    throw new Error("Supabase is not configured on this deployment. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your frontend host.");
+  }
+
+  return supabase;
+}
+
 function wrapUser(user, session) {
   if (!user) {
     return null;
@@ -48,11 +56,9 @@ export function watchAuthState(callback) {
 }
 
 export async function signInWithEmail(email, password) {
-  if (!supabase) {
-    return null;
-  }
+  const client = requireSupabase();
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await client.auth.signInWithPassword({ email, password });
   if (error) {
     throw error;
   }
@@ -60,12 +66,10 @@ export async function signInWithEmail(email, password) {
 }
 
 export async function registerWithEmail(email, password, displayName) {
-  if (!supabase) {
-    return null;
-  }
+  const client = requireSupabase();
 
   const redirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
-  const { data, error } = await supabase.auth.signUp({
+  const { data, error } = await client.auth.signUp({
     email,
     password,
     options: {
@@ -84,11 +88,9 @@ export async function registerWithEmail(email, password, displayName) {
 }
 
 export async function signOutUser() {
-  if (!supabase) {
-    return;
-  }
+  const client = requireSupabase();
 
-  const { error } = await supabase.auth.signOut();
+  const { error } = await client.auth.signOut();
   if (error) {
     throw error;
   }
