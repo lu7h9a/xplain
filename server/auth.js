@@ -1,50 +1,59 @@
-﻿import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
+import { createClient } from "@supabase/supabase-js";
 
-function readServiceAccount() {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+
+let supabaseAdmin = null;
+
+export function getSupabaseAdmin() {
+  if (supabaseAdmin !== null) {
+    return supabaseAdmin;
   }
 
-  const projectId = process.env.FIREBASE_PROJECT_ID || "";
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || "";
-  const privateKey = (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
-
-  if (!projectId || !clientEmail || !privateKey) {
+  const key = supabaseServiceRoleKey || supabaseAnonKey;
+  if (!supabaseUrl || !key) {
+    supabaseAdmin = null;
     return null;
   }
 
-  return { projectId, clientEmail, privateKey };
+  supabaseAdmin = createClient(supabaseUrl, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+
+  return supabaseAdmin;
 }
 
-let firebaseAuth = null;
-
-export function getFirebaseAuth() {
-  if (firebaseAuth !== null) {
-    return firebaseAuth;
-  }
-
-  const serviceAccount = readServiceAccount();
-  if (!serviceAccount) {
-    firebaseAuth = null;
-    return firebaseAuth;
-  }
-
-  const app = getApps()[0] || initializeApp({ credential: cert(serviceAccount) });
-  firebaseAuth = getAuth(app);
-  return firebaseAuth;
-}
-
-export async function verifyFirebaseToken(idToken) {
-  const auth = getFirebaseAuth();
-  if (!auth || !idToken) {
+export async function verifyAuthToken(idToken) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !idToken) {
     return null;
   }
 
   try {
-    return await auth.verifyIdToken(idToken);
+    const { data, error } = await supabase.auth.getUser(idToken);
+    if (error) {
+      console.error("Supabase token verification failed:", error.message);
+      return null;
+    }
+
+    const user = data.user;
+    if (!user) {
+      return null;
+    }
+
+    return {
+      uid: user.id,
+      email: user.email || null,
+      name: user.user_metadata?.display_name || user.user_metadata?.full_name || user.email?.split("@")[0] || null,
+      user_metadata: user.user_metadata || {},
+    };
   } catch (error) {
-    console.error("Firebase token verification failed:", error.message);
+    console.error("Supabase token verification failed:", error.message);
     return null;
   }
 }
+

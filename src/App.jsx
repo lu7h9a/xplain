@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LOCAL_TOPIC_LIBRARY } from "./topicLibrary.js";
-import { registerWithEmail, signInWithEmail, signInWithGoogle, signOutUser, watchAuthState } from "./firebase.js";
+import { registerWithEmail, signInWithEmail, signInWithGoogle, signOutUser, watchAuthState } from "./supabase.js";
 import { DEFAULT_UI_COPY } from "../shared/localization.js";
 
 const DEFAULT_TOPICS = LOCAL_TOPIC_LIBRARY;
@@ -30,6 +30,9 @@ export default function App() {
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardData, setDashboardData] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyData, setHistoryData] = useState([]);
   const [concept, setConcept] = useState("");
   const [topics, setTopics] = useState(DEFAULT_TOPICS);
   const [languageOptions, setLanguageOptions] = useState([{ code: "en", name: "English", nativeName: "English" }]);
@@ -44,6 +47,7 @@ export default function App() {
   const [quizTarget, setQuizTarget] = useState(4);
   const [lesson, setLesson] = useState(null);
   const [sessionId, setSessionId] = useState(null);
+  const [remoteSessionId, setRemoteSessionId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -173,6 +177,22 @@ export default function App() {
     return authToken ? { Authorization: `Bearer ${authToken}` } : {};
   }
 
+  async function loadHistory() {
+    if (!authToken) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/history`, { headers: { ...getAuthHeaders() } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to load history");
+      setHistoryData(data.history || []);
+      setHistoryOpen(true);
+    } catch (historyError) {
+      setError(historyError.message || "Unable to load history.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   async function loadLanguages() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/languages`, { headers: { ...getAuthHeaders() } });
@@ -262,6 +282,7 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to generate lesson");
       setSessionId(data.sessionId);
+      setRemoteSessionId(data.remoteSessionId || null);
       setLesson(enrichLesson(data.lesson, activeLevel === "child" ? interest : "", seed));
       setLearnerExplanation("");
       setConfusionArea("");
@@ -282,6 +303,7 @@ export default function App() {
         materialSeed: seed,
       });
       setSessionId(`local-${Date.now()}`);
+      setRemoteSessionId(null);
       setLesson(enrichLesson(fallbackLesson, activeLevel === "child" ? interest : "", seed));
       setLearnerExplanation("");
       setConfusionArea("");
@@ -334,7 +356,7 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/api/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ sessionId, understood, learnerExplanation, confusionArea, performanceSignals: buildPerformanceSignals() }),
+        body: JSON.stringify({ sessionId, remoteSessionId, understood, learnerExplanation, confusionArea, performanceSignals: buildPerformanceSignals() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unable to save feedback");
@@ -415,6 +437,7 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             {authUser ? <button className="auth-button" onClick={() => void loadDashboard()} disabled={dashboardLoading}>{dashboardLoading ? "Loading dashboard..." : "Dashboard"}</button> : null}
+            {authUser ? <button className="auth-button" onClick={() => void loadHistory()} disabled={historyLoading}>{historyLoading ? "Loading history..." : "History"}</button> : null}
             <button className="auth-button" onClick={() => authUser ? void handleLogout() : setAuthModalOpen(true)} disabled={authLoading}>
               {authLoading ? "Loading..." : authUser ? `Logout ${authUser.displayName?.split(" ")[0] || "Learner"}` : "Login"}
             </button>
@@ -440,6 +463,36 @@ export default function App() {
                   <span className="eyebrow">Recent Learning</span>
                   <div className="bullet-stack">{dashboardData?.recentEvents?.length ? dashboardData.recentEvents.map((item, index) => <div key={`${item.eventType}-${index}`} className="bullet-card"><strong>{item.topic || "Session"}</strong><small>{item.eventType} | {item.language || "English"}</small></div>) : <div className="bullet-card">No saved learning events yet.</div>}</div>
                 </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {historyOpen ? (
+          <div className="modal-backdrop">
+            <div className="auth-modal panel dashboard-modal">
+              <button className="modal-close" onClick={() => setHistoryOpen(false)}>x</button>
+              <span className="eyebrow">Chat History</span>
+              <h2>Your previous learning</h2>
+              <div className="history-stack">
+                {historyData.length ? historyData.map((item) => (
+                  <div key={item.id} className="panel dashboard-card history-card">
+                    <div className="history-head">
+                      <div>
+                        <strong>{item.topic || "Untitled topic"}</strong>
+                        <small>{new Date(item.createdAt).toLocaleString()}</small>
+                      </div>
+                      <div className="history-meta">
+                        <span>{item.learnerLevel || "beginner"}</span>
+                        <span>{item.language || "English"}</span>
+                        {item.bestQuizScore != null ? <span>{item.bestQuizScore}/{item.bestQuizTotal}</span> : null}
+                      </div>
+                    </div>
+                    <p>{item.lessonSummary || "No summary saved yet."}</p>
+                    {item.flashcards?.length ? <div className="bullet-stack">{item.flashcards.slice(0, 3).map((card, index) => <div key={`${item.id}-card-${index}`} className="bullet-card"><strong>{card.front}</strong><small>{card.back}</small></div>)}</div> : null}
+                    {item.teachBackNotes?.length ? <div className="bullet-stack">{item.teachBackNotes.map((note, index) => <div key={`${item.id}-teach-${index}`} className="bullet-card"><strong>Teach-back</strong><small>{note.explanation}</small></div>)}</div> : null}
+                  </div>
+                )) : <div className="bullet-card">No saved lesson history yet.</div>}
               </div>
             </div>
           </div>
@@ -976,7 +1029,7 @@ const styles = `
 :root[data-theme="light"] { --bg:#f7f1de; --bg-soft:#efe6cb; --panel:#fffdf5; --panel-2:#faf4e3; --panel-3:#f3ecd8; --text:#1d241d; --muted:#6f7668; --line:rgba(72,61,38,0.10); --shadow:0 18px 50px rgba(96,82,49,0.10); --lime:#58cc02; --lime-deep:#46a302; --sun:#ffca3a; --sky:#4d8ff7; --danger:#f25f5c; }
 *{box-sizing:border-box} body{margin:0;font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text)} button,input,textarea,select{font:inherit}
 .app-shell{min-height:100vh;background:radial-gradient(circle at top left, rgba(88,204,2,0.10), transparent 24%),radial-gradient(circle at 80% 10%, rgba(255,216,74,0.10), transparent 22%),repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0, rgba(255,255,255,0.018) 2px, transparent 2px, transparent 44px),linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);color:var(--text);position:relative;overflow-x:hidden}
-.background-orb{position:fixed;border-radius:999px;filter:blur(80px);opacity:.25;pointer-events:none}.orb-one{width:340px;height:340px;background:var(--lime);top:-100px;left:-80px}.orb-two{width:280px;height:280px;background:var(--sun);right:-80px;top:160px}.modal-backdrop{position:fixed;inset:0;background:rgba(4,10,8,.62);display:grid;place-items:center;padding:24px;z-index:10}.auth-modal{width:min(520px,100%);background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);border-radius:28px;padding:26px;position:relative}.dashboard-modal{width:min(920px,100%)}.dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:16px}.dashboard-card{margin-top:0}.auth-form{display:grid;gap:12px;margin-top:16px}.auth-modal h2{margin:10px 0 12px;font-size:36px;font-family:'Schoolbell',cursive}.modal-close{position:absolute;top:14px;right:14px;width:40px;height:40px;border-radius:999px;border:0;background:var(--panel-3);color:var(--text);font-size:22px;cursor:pointer}.secondary-cta{background:var(--sun);border-bottom-color:#c9950c;color:#1d241d}
+.background-orb{position:fixed;border-radius:999px;filter:blur(80px);opacity:.25;pointer-events:none}.orb-one{width:340px;height:340px;background:var(--lime);top:-100px;left:-80px}.orb-two{width:280px;height:280px;background:var(--sun);right:-80px;top:160px}.modal-backdrop{position:fixed;inset:0;background:rgba(4,10,8,.62);display:grid;place-items:center;padding:24px;z-index:10}.auth-modal{width:min(520px,100%);background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);border-radius:28px;padding:26px;position:relative}.dashboard-modal{width:min(920px,100%)}.dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:16px}.dashboard-card{margin-top:0}.history-stack{display:grid;gap:16px;margin-top:16px}.history-card p{color:var(--muted);line-height:1.7}.history-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.history-head small{display:block;color:var(--muted);margin-top:4px}.history-meta{display:flex;gap:10px;flex-wrap:wrap}.history-meta span{background:var(--panel-3);padding:8px 10px;border-radius:999px;color:var(--text);font-size:12px;font-weight:800}.auth-form{display:grid;gap:12px;margin-top:16px}.auth-modal h2{margin:10px 0 12px;font-size:36px;font-family:'Schoolbell',cursive}.modal-close{position:absolute;top:14px;right:14px;width:40px;height:40px;border-radius:999px;border:0;background:var(--panel-3);color:var(--text);font-size:22px;cursor:pointer}.secondary-cta{background:var(--sun);border-bottom-color:#c9950c;color:#1d241d}
 .page-frame{width:min(1240px,calc(100% - 32px));margin:0 auto;padding:28px 0 72px;position:relative;z-index:1}.topbar,.hero-panel,.grid,.level-grid,.tabs,.toggle-row,.hero-stats,.pill-row,.brand-wrap,.flashcard-nav,.slide-shell,.progress-dots,.quiz-question-head,.topbar-actions{display:flex;gap:16px}.topbar,.hero-panel,.toggle-row,.slide-shell,.flashcard-nav,.quiz-question-head,.topbar-actions{align-items:center}.topbar,.hero-panel{justify-content:space-between}.grid,.level-grid,.topic-grid,.bullet-stack,.quiz-options,.quiz-list,.learning-modes,.teachback-grid{display:grid}.hero-panel,.lesson-stack{margin-top:22px}
 .brand-chip,.theme-toggle,.auth-button,.panel,.level-card,.topic-chip,.stat-card,.library-card,.bullet-card,.error-banner,.snapshot-card,.explanation-card,.question-box,.coach-response,.mode-card,.slide-card,.flashcard,.quiz-question,.insight-panel,.auth-modal{border:2px solid var(--line);box-shadow:var(--shadow)}
 .brand-chip{width:66px;height:66px;border-radius:22px;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);display:grid;place-items:center}.brand-title{font-size:34px;font-weight:900;line-height:1;font-family:'Schoolbell',cursive}.brand-subtitle{color:var(--muted);font-size:14px}.auth-button,.theme-toggle{border-radius:999px;background:var(--panel);color:var(--text);padding:12px 18px;display:flex;gap:18px;align-items:center;cursor:pointer;font-weight:800}.auth-button{background:var(--panel-3)}
@@ -998,6 +1051,9 @@ const styles = `
 @media (max-width:1080px){.grid.three-up,.quiz-options,.level-grid,.grid.two-up,.teachback-grid,.choice-grid,.dashboard-grid{grid-template-columns:1fr}.hero-panel,.lesson-hero,.slide-shell{flex-direction:column}.nav-arrow{width:100%}.slide-card{min-height:320px}.slide-card h3{font-size:38px}.slide-card p{font-size:18px}}
 @media (max-width:720px){.page-frame{width:min(100% - 20px,1240px)}.topbar,.topbar-actions{flex-direction:column;align-items:flex-start}.brand-title{font-size:28px}.hero-copy h1{font-size:42px}.cta-button{width:100%}.input-shell{flex-direction:column}.flashcard-face{font-size:22px}}
 `;
+
+
+
 
 
 

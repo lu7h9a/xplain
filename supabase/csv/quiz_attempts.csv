@@ -1,0 +1,2 @@
+id,user_id,lesson_session_id,topic,quiz_payload,score,total_questions,wrong_questions,slow_questions,created_at
+1,00000000-0000-0000-0000-000000000001,1,Blockchain,"[{""id"":""q1"",""prompt"":""What is blockchain?""}]",3,4,"[""Question 2""]","[""Question 3""]",2026-03-28T09:15:00Z

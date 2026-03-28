@@ -3,8 +3,8 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { createDatabase, getTopicBySlug, listTopics } from "./db.js";
-import { verifyFirebaseToken } from "./auth.js";
-import { getUserDashboard, recordLearningEvent } from "./mongo.js";
+import { verifyAuthToken } from "./auth.js";
+import { getUserDashboard, getUserHistory, getUserLearningContext, recordLearningEvent, saveLessonSession } from "./supabaseDb.js";
 import { DEFAULT_UI_COPY, LANGUAGE_OPTIONS } from "../shared/localization.js";
 
 const app = express();
@@ -21,7 +21,7 @@ app.use(express.json());
 app.use(async (req, _res, next) => {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  req.user = await verifyFirebaseToken(token);
+  req.user = await verifyAuthToken(token);
   next();
 });
 
@@ -73,6 +73,15 @@ app.get("/api/dashboard", async (req, res) => {
   return res.json({ dashboard });
 });
 
+app.get("/api/history", async (req, res) => {
+  if (!req.user?.uid) {
+    return res.status(401).json({ error: "Login required" });
+  }
+
+  const history = await getUserHistory(req.user.uid);
+  return res.json({ history });
+});
+
 app.post("/api/explain", async (req, res) => {
   const {
     topicSlug,
@@ -97,6 +106,9 @@ app.post("/api/explain", async (req, res) => {
     return res.status(400).json({ error: "Provide a predefined topic or a custom topic." });
   }
 
+  const authUser = buildAuthUser(req.user);
+  const historyContext = authUser?.uid ? await getUserLearningContext(authUser.uid) : null;
+
   const learner = {
     learnerLevel,
     mood,
@@ -111,9 +123,8 @@ app.post("/api/explain", async (req, res) => {
     regenerationSeed,
     confusionPattern,
     previousBehavior,
+    historyContext,
   };
-
-  const authUser = buildAuthUser(req.user);
 
   const learnerProfileId = upsertLearnerProfile(db, {
     learnerName,
@@ -142,9 +153,26 @@ app.post("/api/explain", async (req, res) => {
     JSON.stringify(lesson)
   ).lastInsertRowid;
 
+  const remoteSessionId = await saveLessonSession({
+    user: authUser,
+    learnerName,
+    topic: lesson.topic.title,
+    topicSlug: topic?.slug || null,
+    customTopic: customTopic.trim() || null,
+    learnerLevel,
+    mood,
+    preferredStyle,
+    interest,
+    language,
+    generationMode,
+    lessonPayload: lesson,
+    lessonSummary: lesson.topic.shortSummary,
+  });
+
   void recordLearningEvent({
     user: authUser,
     learnerName,
+    lessonSessionId: remoteSessionId,
     eventType: generationMode === "lesson" ? "lesson_requested" : generationMode,
     topic: lesson.topic.title,
     topicSlug: topic?.slug || null,
@@ -167,6 +195,7 @@ app.post("/api/explain", async (req, res) => {
 
   return res.json({
     sessionId,
+    remoteSessionId,
     lesson,
   });
 });
@@ -206,6 +235,7 @@ app.post("/api/feedback", (req, res) => {
   void recordLearningEvent({
     user: buildAuthUser(req.user),
     learnerName: lesson.learnerSnapshot?.learnerName || null,
+    lessonSessionId: req.body.remoteSessionId || null,
     eventType: "teachback_submitted",
     topic: lesson.topic.title,
     topicSlug: lesson.topic.slug || null,
@@ -358,6 +388,7 @@ Learner profile:
 - generation mode: ${learner.generationMode || "lesson"}
 - performance signals: ${performanceSummary}
 - regeneration seed: ${learner.regenerationSeed || "none"}
+- prior learning context: ${JSON.stringify(learner.historyContext || {})}
 
 Lesson rules:
 - Teach in the learner's chosen language.
@@ -376,6 +407,7 @@ Lesson rules:
 - Include exactly ${learner.quizQuestionCount || 4} MCQ quiz questions with exactly 4 options each, a correctAnswer index, and a reteach hint.
 - Include exactly 3 adaptive tips, 3 confusion hotspots, and 3 check-in questions.
 - If performance signals show hesitation, wrong answers, or missing concepts, explicitly target those weak areas in the explanation, hints, flashcards, and adaptive tips.
+- If prior learning context exists, connect this lesson to the learner's weak topics, past mistakes, and repeated hesitation patterns where relevant.
 - If generation mode asks for fresh quiz questions or flashcards, make them new and not reworded duplicates.
 - ${generationModeNotes[learner.generationMode] || generationModeNotes.lesson}
 
@@ -1027,4 +1059,5 @@ function buildAuthUser(decodedToken) {
     name: decodedToken.name || decodedToken.email || null,
   };
 }
+
 

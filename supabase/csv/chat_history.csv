@@ -1,0 +1,2 @@
+id,user_id,topic,topic_slug,session_id,role,message,metadata,created_at
+1,00000000-0000-0000-0000-000000000001,Blockchain,blockchain,1,user,"What is blockchain?","{""source"":""user_prompt"",""language"":""English""}",2026-03-28T09:04:00Z

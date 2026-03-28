@@ -1,0 +1,2 @@
+id,user_id,lesson_session_id,topic,learner_explanation,confusion_area,missed_concepts,strong_points,reteach_steps,overlap_score,created_at
+1,00000000-0000-0000-0000-000000000001,1,Blockchain,"Blockchain is a chain of shared blocks that stores records.",consensus,"[""consensus""]","[""distributed ledger""]","[""Revisit how validation works""]",0.62,2026-03-28T09:18:00Z
