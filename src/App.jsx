@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LOCAL_TOPIC_LIBRARY } from "./topicLibrary.js";
-import { registerWithEmail, signInWithEmail, signInWithGoogle, signOutUser, watchAuthState } from "./supabase.js";
+import { registerWithEmail, signInWithEmail, signOutUser, watchAuthState } from "./supabase.js";
 import { DEFAULT_UI_COPY } from "../shared/localization.js";
 
 const DEFAULT_TOPICS = LOCAL_TOPIC_LIBRARY;
@@ -26,7 +26,9 @@ export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [authEmail, setAuthEmail] = useState("");
+  const [authUsername, setAuthUsername] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardData, setDashboardData] = useState(null);
@@ -128,57 +130,36 @@ export default function App() {
     setAuthModalOpen(false);
   }
 
-  async function handleGoogleLogin() {
-    try {
-      await signInWithGoogle();
-      setAuthModalOpen(false);
-    } catch (loginError) {
-      setError(loginError.message || "Unable to sign in right now.");
-    }
-  }
-
-  async function handleEmailAuth() {
-    try {
-      if (authMode === "signup") {
-        await registerWithEmail(authEmail, authPassword, learnerName || authEmail.split("@")[0]);
-      } else {
-        await signInWithEmail(authEmail, authPassword);
-      }
-      setAuthModalOpen(false);
-      setAuthEmail("");
-      setAuthPassword("");
-    } catch (loginError) {
-      setError(loginError.message || "Unable to authenticate right now.");
-    }
-  }
-
-  async function handleLogout() {
-    await signOutUser();
-    setDashboardOpen(false);
+  function getAuthHeaders() {
+    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
   }
 
   async function loadDashboard() {
-    if (!authToken) return;
+    if (!authToken) {
+      setAuthModalOpen(true);
+      return;
+    }
+
     setDashboardLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/dashboard`, { headers: { ...getAuthHeaders() } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unable to load dashboard");
-      setDashboardData(data.dashboard);
+      setDashboardData(data.dashboard || null);
       setDashboardOpen(true);
-    } catch (dashboardError) {
-      setError(dashboardError.message || "Unable to load dashboard.");
+    } catch (err) {
+      setError(err.message || "Unable to load dashboard right now.");
     } finally {
       setDashboardLoading(false);
     }
   }
 
-  function getAuthHeaders() {
-    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
-  }
-
   async function loadHistory() {
-    if (!authToken) return;
+    if (!authToken) {
+      setAuthModalOpen(true);
+      return;
+    }
+
     setHistoryLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/history`, { headers: { ...getAuthHeaders() } });
@@ -186,10 +167,65 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || "Unable to load history");
       setHistoryData(data.history || []);
       setHistoryOpen(true);
-    } catch (historyError) {
-      setError(historyError.message || "Unable to load history.");
+    } catch (err) {
+      setError(err.message || "Unable to load history right now.");
     } finally {
       setHistoryLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await signOutUser();
+      setDashboardOpen(false);
+      setHistoryOpen(false);
+      setDashboardData(null);
+      setHistoryData([]);
+      setAuthToken("");
+    } catch (err) {
+      setError(err.message || "Unable to logout right now.");
+    }
+  }
+
+  async function handleEmailAuth() {
+    const email = authEmail.trim();
+    const username = authUsername.trim();
+
+    if (!email || !authPassword) {
+      setError("Enter your email and password first.");
+      return;
+    }
+
+    if (authMode === "signup") {
+      if (!username) {
+        setError("Choose a username to create your account.");
+        return;
+      }
+      if (authPassword !== authConfirmPassword) {
+        setError("Password and confirm password must match.");
+        return;
+      }
+    }
+
+    setError("");
+
+    try {
+      if (authMode === "signup") {
+        await registerWithEmail(email, authPassword, username);
+        setLearnerName(username);
+      } else {
+        await signInWithEmail(email, authPassword);
+      }
+
+      setAuthEmail("");
+      setAuthUsername("");
+      setAuthPassword("");
+      setAuthConfirmPassword("");
+      setAuthModalOpen(false);
+      popupDismissedRef.current = false;
+      window.localStorage.removeItem("eggzy-auth-dismissed");
+    } catch (err) {
+      setError(err.message || "Authentication failed. Please try again.");
     }
   }
 
@@ -472,8 +508,9 @@ export default function App() {
           <div className="modal-backdrop">
             <div className="auth-modal panel dashboard-modal">
               <button className="modal-close" onClick={() => setHistoryOpen(false)}>x</button>
-              <span className="eyebrow">Chat History</span>
+              <span className="eyebrow">Learning History</span>
               <h2>Your previous learning</h2>
+              <p className="support-copy">A focused history of the topics you opened, with the best saved quiz snapshot for each one.</p>
               <div className="history-stack">
                 {historyData.length ? historyData.map((item) => (
                   <div key={item.id} className="panel dashboard-card history-card">
@@ -485,12 +522,13 @@ export default function App() {
                       <div className="history-meta">
                         <span>{item.learnerLevel || "beginner"}</span>
                         <span>{item.language || "English"}</span>
-                        {item.bestQuizScore != null ? <span>{item.bestQuizScore}/{item.bestQuizTotal}</span> : null}
+                        {item.bestQuizScore != null ? <span>Quiz {item.bestQuizScore}/{item.bestQuizTotal}</span> : <span>No quiz yet</span>}
                       </div>
                     </div>
                     <p>{item.lessonSummary || "No summary saved yet."}</p>
-                    {item.flashcards?.length ? <div className="bullet-stack">{item.flashcards.slice(0, 3).map((card, index) => <div key={`${item.id}-card-${index}`} className="bullet-card"><strong>{card.front}</strong><small>{card.back}</small></div>)}</div> : null}
-                    {item.teachBackNotes?.length ? <div className="bullet-stack">{item.teachBackNotes.map((note, index) => <div key={`${item.id}-teach-${index}`} className="bullet-card"><strong>Teach-back</strong><small>{note.explanation}</small></div>)}</div> : null}
+                    <div className="action-row">
+                      <button type="button" className="mini-button secondary-button" onClick={() => { setHistoryOpen(false); setConcept(item.topic || ""); void handleExplain(item.topic || ""); }}>Open topic again</button>
+                    </div>
                   </div>
                 )) : <div className="bullet-card">No saved lesson history yet.</div>}
               </div>
@@ -504,17 +542,18 @@ export default function App() {
               <button className="modal-close" onClick={dismissAuthModal}>x</button>
               <span className="eyebrow">Secure Login</span>
               <h2>Save your Eggzy progress</h2>
-              <p className="support-copy">Login to save difficult topics, slow questions, wrong answers, and your teach-back notes under your own profile.</p>
+              <p className="support-copy">Login to save weak topics, revision history, quiz results, and teach-back notes under your own profile.</p>
               <div className="toggle-row">
                 <button className={`toggle-pill ${authMode === "login" ? "active" : ""}`} onClick={() => setAuthMode("login")}>Login</button>
                 <button className={`toggle-pill ${authMode === "signup" ? "active" : ""}`} onClick={() => setAuthMode("signup")}>Sign up</button>
               </div>
               <div className="auth-form">
+                {authMode === "signup" ? <input className="input" value={authUsername} onChange={(event) => setAuthUsername(event.target.value)} placeholder="Username" /> : null}
                 <input className="input" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email" />
                 <input className="input" type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" />
+                {authMode === "signup" ? <input className="input" type="password" value={authConfirmPassword} onChange={(event) => setAuthConfirmPassword(event.target.value)} placeholder="Confirm password" /> : null}
               </div>
               <div className="action-row">
-                <button className="cta-button" onClick={() => void handleGoogleLogin()}>Continue with Google</button>
                 <button className="cta-button secondary-cta" onClick={() => void handleEmailAuth()}>{authMode === "signup" ? "Create account" : "Login with email"}</button>
                 <button className="mini-button secondary-button" onClick={dismissAuthModal}>Maybe later</button>
               </div>
@@ -1051,6 +1090,9 @@ const styles = `
 @media (max-width:1080px){.grid.three-up,.quiz-options,.level-grid,.grid.two-up,.teachback-grid,.choice-grid,.dashboard-grid{grid-template-columns:1fr}.hero-panel,.lesson-hero,.slide-shell{flex-direction:column}.nav-arrow{width:100%}.slide-card{min-height:320px}.slide-card h3{font-size:38px}.slide-card p{font-size:18px}}
 @media (max-width:720px){.page-frame{width:min(100% - 20px,1240px)}.topbar,.topbar-actions{flex-direction:column;align-items:flex-start}.brand-title{font-size:28px}.hero-copy h1{font-size:42px}.cta-button{width:100%}.input-shell{flex-direction:column}.flashcard-face{font-size:22px}}
 `;
+
+
+
 
 
 

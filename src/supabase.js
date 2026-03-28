@@ -47,24 +47,6 @@ export function watchAuthState(callback) {
   return () => data.subscription.unsubscribe();
 }
 
-export async function signInWithGoogle() {
-  if (!supabase) {
-    return null;
-  }
-
-  const redirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo },
-  });
-
-  if (error) {
-    throw error;
-  }
-
-  return true;
-}
-
 export async function signInWithEmail(email, password) {
   if (!supabase) {
     return null;
