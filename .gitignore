@@ -1,0 +1,10 @@
+.env
+node_modules/
+dist/
+server/data/*.db
+railway-test.json
+push_error.txt
+py_err.txt
+status.txt
+temp.js
+tmp_out.txt
