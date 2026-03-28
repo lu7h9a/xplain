@@ -353,48 +353,20 @@ function getAiProvider() {
 }
 
 async function generateLessonWithGroq({ topic, customTopic, learner }) {
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${groqApiKey}`,
-    },
-    body: JSON.stringify({
-      model: groqModel,
-      temperature: 0.7,
-      messages: [
-        {
-          role: "system",
-          content: "You are Eggzy, an adaptive AI teacher. Always return valid JSON only.",
-        },
-        {
-          role: "user",
-          content: buildLessonPrompt({ topic, customTopic, learner }),
-        },
-      ],
-    }),
-  });
+  let lesson = normalizeLesson(await requestGroqLessonJson(buildLessonPrompt({ topic, customTopic, learner })), { topic, customTopic, learner });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Groq API error ${response.status}: ${errorText}`);
+  for (let attempt = 0; attempt < 2 && !isLessonRichEnough(lesson); attempt += 1) {
+    lesson = normalizeLesson(
+      await requestGroqLessonJson(buildLessonRefinementPrompt({ topic, customTopic, learner, draftLesson: lesson })),
+      { topic, customTopic, learner }
+    );
   }
 
-  const data = await response.json();
-  const text = data?.choices?.[0]?.message?.content?.trim();
-  if (!text) {
-    throw new Error("Groq returned no content.");
-  }
-
-  return normalizeLesson(extractJsonObject(text), { topic, customTopic, learner });
+  return lesson;
 }
 
 function buildLessonPrompt({ topic, customTopic, learner }) {
   const subject = topic?.title || customTopic;
-  const moodTone = getMoodTone(learner.mood);
-  const styleLens = getStyleLens(learner.preferredStyle);
-  const levelGuide = getLevelGuide(learner.learnerLevel);
-  const performanceSummary = JSON.stringify(learner.performanceSignals || {});
   const generationModeNotes = {
     lesson: "Give the full best teaching experience from explanation through revision.",
     quiz_refresh: "Keep the lesson coherent, but prioritize generating a fresh set of quiz questions that are meaningfully different from before.",
@@ -415,9 +387,11 @@ Learner profile:
 - language: ${learner.language || "English"}
 - learner name: ${learner.learnerName || "not provided"}
 - generation mode: ${learner.generationMode || "lesson"}
-- performance signals: ${performanceSummary}
+- performance signals:
+${formatPerformanceSignals(learner.performanceSignals)}
 - regeneration seed: ${learner.regenerationSeed || "none"}
-- prior learning context: ${JSON.stringify(learner.historyContext || {})}
+- prior learning context:
+${formatHistoryContext(learner.historyContext)}
 
 Lesson rules:
 - Teach in the learner's chosen language.
@@ -425,12 +399,14 @@ Lesson rules:
 - Sound like a patient teacher, not a chatbot.
 - Use every learner detail you were given to customize the answer.
 - If a learner name is provided, address the learner naturally by name in the main level explanations and learningModes fields. Use the name lightly and helpfully, not in every sentence.
+- The lesson must feel genuinely different across child, beginner, and expert. Do not just rewrite the first paragraph and keep the rest the same.
 - Include foundation, core idea, how it works, real-world example, and summary.
 - When relevant, include origin, history, inventor/founder, timeline, evolution, and why the topic became important.
 - Give as much detail as it requires to explain the topic completely, not just define it.
 - Make the explanation rich enough to genuinely teach the topic completely, not just define it.
-- Make each stage body detailed, content-rich, and roughly 140-220 words.
-- Make the level explanation a long-form teaching narrative, not a short intro.
+- Make each top-level explanation a long-form teaching narrative, not a short intro. Target roughly 220-420 words per level explanation.
+- Create a complete five-stage lesson deck for child, beginner, and expert separately. Every stage body should be tailored to that level and roughly 110-220 words.
+- The full lesson body must change with the selected level, including the slide content, not just the headline explanation.
 - Include learning modes for analogy, stepByStep, and realLife.
 - Include level explanations for child, beginner, and expert.
 - Include exactly ${learner.flashcardCount || 5} flashcards for revision.
@@ -439,10 +415,62 @@ Lesson rules:
 - If performance signals show hesitation, wrong answers, or missing concepts, explicitly target those weak areas in the explanation, hints, flashcards, and adaptive tips.
 - If prior learning context exists, connect this lesson to the learner's weak topics, past mistakes, and repeated hesitation patterns where relevant.
 - If generation mode asks for fresh quiz questions or flashcards, make them new and not reworded duplicates.
+- Silently self-review before answering. If any section is generic, shallow, repetitive across levels, or fails to use the learner data, rewrite it before returning.
 - ${generationModeNotes[learner.generationMode] || generationModeNotes.lesson}
 
 Return JSON with this exact shape:
-{
+${getLessonJsonShape()}
+`.trim();
+}
+
+function buildLessonRefinementPrompt({ topic, customTopic, learner, draftLesson }) {
+  const subject = topic?.title || customTopic;
+  return `
+You are improving an Eggzy lesson draft for "${subject}".
+
+Your job:
+- keep the same JSON schema
+- preserve valid quiz structure and counts
+- preserve flashcard counts
+- strengthen weak or generic explanations
+- make child, beginner, and expert clearly different across the full lesson body
+- use every learner detail and history signal more concretely
+- make the lesson complete enough to genuinely teach the topic
+
+Learner profile recap:
+- level: ${learner.learnerLevel}
+- mood: ${learner.mood}
+- preferred style: ${learner.preferredStyle}
+- interest: ${learner.interest || "general"}
+- language: ${learner.language || "English"}
+- learner name: ${learner.learnerName || "not provided"}
+- generation mode: ${learner.generationMode || "lesson"}
+- performance signals:
+${formatPerformanceSignals(learner.performanceSignals)}
+- prior learning context:
+${formatHistoryContext(learner.historyContext)}
+
+Current draft weaknesses to fix:
+${summarizeLessonGaps(draftLesson)}
+
+Requirements:
+- Return valid JSON only.
+- Strengthen the entire lesson, not just the introduction.
+- Every level explanation must feel complete.
+- Every level must have a complete five-stage deck with materially different bodies.
+- If the learner hesitated, got questions wrong, or missed concepts, weave those weak spots into the reteach framing, examples, hints, and summaries.
+- If the topic naturally has history, origin, inventors, milestones, or evolution, include them where they genuinely help understanding.
+
+Schema:
+${getLessonJsonShape()}
+
+Current draft JSON:
+${JSON.stringify(draftLesson)}
+`.trim();
+}
+
+function getLessonJsonShape() {
+  return `{
   "topic": {
     "slug": null,
     "title": "string",
@@ -468,6 +496,29 @@ Return JSON with this exact shape:
     { "id": "example", "title": "Real-World Example", "body": "string" },
     { "id": "summary", "title": "Summary", "body": "string" }
   ],
+  "levelStages": {
+    "child": [
+      { "id": "foundation", "title": "Foundation", "body": "string" },
+      { "id": "core", "title": "Core Idea", "body": "string" },
+      { "id": "how", "title": "How It Works", "body": "string" },
+      { "id": "example", "title": "Real-World Example", "body": "string" },
+      { "id": "summary", "title": "Summary", "body": "string" }
+    ],
+    "beginner": [
+      { "id": "foundation", "title": "Foundation", "body": "string" },
+      { "id": "core", "title": "Core Idea", "body": "string" },
+      { "id": "how", "title": "How It Works", "body": "string" },
+      { "id": "example", "title": "Real-World Example", "body": "string" },
+      { "id": "summary", "title": "Summary", "body": "string" }
+    ],
+    "expert": [
+      { "id": "foundation", "title": "Foundation", "body": "string" },
+      { "id": "core", "title": "Core Idea", "body": "string" },
+      { "id": "how", "title": "How It Works", "body": "string" },
+      { "id": "example", "title": "Real-World Example", "body": "string" },
+      { "id": "summary", "title": "Summary", "body": "string" }
+    ]
+  },
   "learningModes": {
     "analogy": "string",
     "stepByStep": "string",
@@ -493,16 +544,87 @@ Return JSON with this exact shape:
   "adaptiveTips": ["string", "string", "string"],
   "confusionHotspots": ["string", "string", "string"],
   "checkInQuestions": ["string", "string", "string"]
+}`;
 }
 
-Additional teaching context:
-- mood tone: ${moodTone.encouragement}
-- style lens: ${styleLens.coreFraming}
-- level guide: ${levelGuide.foundationLead}
-`.trim();
+function formatPerformanceSignals(signals = {}) {
+  const slowQuestions = (signals?.slowQuestions || []).map((item) => item?.prompt || item).filter(Boolean);
+  const wrongQuestions = (signals?.wrongQuestions || []).map((item) => item?.prompt || item).filter(Boolean);
+  const missedConcepts = (signals?.missedConcepts || []).filter(Boolean);
+  return [
+    `  * current lesson phase: ${signals?.lessonPhase || "unknown"}`,
+    `  * quiz score: ${signals?.quizScore ?? "n/a"} / ${signals?.totalQuestions ?? "n/a"}`,
+    `  * hesitation notes: ${slowQuestions.length ? slowQuestions.join(" | ") : "none"}`,
+    `  * wrong questions: ${wrongQuestions.length ? wrongQuestions.join(" | ") : "none"}`,
+    `  * missed concepts: ${missedConcepts.length ? missedConcepts.join(" | ") : "none"}`,
+    `  * confusion area: ${signals?.confusionArea || "none"}`,
+    `  * teach-back overlap score: ${signals?.overlapScore ?? "n/a"}`,
+    `  * learner explanation summary: ${signals?.learnerExplanation ? String(signals.learnerExplanation).slice(0, 280) : "none"}`,
+  ].join("\n");
 }
+
+function formatHistoryContext(historyContext = {}) {
+  return [
+    `  * weak topics: ${(historyContext?.weakTopics || []).map((item) => item.topic || item).filter(Boolean).join(" | ") || "none"}`,
+    `  * recent topics: ${(historyContext?.recentTopics || []).join(" | ") || "none"}`,
+    `  * repeated wrong questions: ${(historyContext?.repeatedWrongQuestions || []).map((item) => item?.prompt || item).filter(Boolean).join(" | ") || "none"}`,
+    `  * repeated slow questions: ${(historyContext?.repeatedSlowQuestions || []).map((item) => item?.prompt || item).filter(Boolean).join(" | ") || "none"}`,
+    `  * missed concepts: ${(historyContext?.missedConcepts || []).join(" | ") || "none"}`,
+    `  * last confusion area: ${historyContext?.lastConfusionArea || "none"}`,
+  ].join("\n");
+}
+
+async function requestGroqLessonJson(prompt) {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${groqApiKey}`,
+    },
+    body: JSON.stringify({
+      model: groqModel,
+      temperature: 0.7,
+      messages: [
+        {
+          role: "system",
+          content: "You are Eggzy, an adaptive AI teacher. Always return valid JSON only.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Groq API error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content?.trim();
+  if (!text) {
+    throw new Error("Groq returned no content.");
+  }
+
+  return extractJsonObject(text);
+}
+
 async function generateLessonWithGemini({ topic, customTopic, learner }) {
-  const prompt = buildLessonPrompt({ topic, customTopic, learner });
+  let lesson = normalizeLesson(await requestGeminiLessonJson(buildLessonPrompt({ topic, customTopic, learner })), { topic, customTopic, learner });
+
+  for (let attempt = 0; attempt < 2 && !isLessonRichEnough(lesson); attempt += 1) {
+    lesson = normalizeLesson(
+      await requestGeminiLessonJson(buildLessonRefinementPrompt({ topic, customTopic, learner, draftLesson: lesson })),
+      { topic, customTopic, learner }
+    );
+  }
+
+  return lesson;
+}
+
+async function requestGeminiLessonJson(prompt) {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
     {
@@ -529,9 +651,8 @@ async function generateLessonWithGemini({ topic, customTopic, learner }) {
     throw new Error("Gemini returned no content.");
   }
 
-  return normalizeLesson(extractJsonObject(text), { topic, customTopic, learner });
+  return extractJsonObject(text);
 }
-
 function extractJsonObject(text) {
   const trimmed = String(text || "").trim();
 
@@ -554,17 +675,34 @@ function extractJsonObject(text) {
 }
 function normalizeLesson(rawLesson, { topic, customTopic, learner }) {
   const subject = topic?.title || customTopic || "Custom topic";
+  const normalizedTopic = {
+    slug: topic?.slug || null,
+    title: rawLesson?.topic?.title || subject,
+    category: topic?.category || rawLesson?.topic?.category || "Custom",
+    shortSummary: rawLesson?.topic?.shortSummary || topic?.shortSummary || `A guided Eggzy lesson for ${subject}.`,
+    foundation: rawLesson?.topic?.foundation || `${subject} becomes easier once you define what it is, why it matters, and what problem it solves.`,
+    coreIdea: rawLesson?.topic?.coreIdea || `${subject} is easier to understand when you identify its main purpose, the important parts inside it, and the outcome those parts create together.`,
+    howItWorks: rawLesson?.topic?.howItWorks || `Follow ${subject} as a sequence from setup to process to outcome, and make each transition visible.`,
+    realWorldExample: rawLesson?.topic?.realWorldExample || `Think of ${subject} in a real-world example tied to ${learner.interest || "daily life"}.`,
+    summary: rawLesson?.topic?.summary || `${subject} is easiest to remember as purpose, process, history, and application working together.`,
+    childAnalogy: rawLesson?.topic?.childAnalogy || topic?.childAnalogy || `Think of ${subject} like a tool with one clear job that helps something important happen.`,
+    beginnerAnalogy: rawLesson?.topic?.beginnerAnalogy || topic?.beginnerAnalogy || `${subject} makes more sense when you move from the problem to the mechanism and then to the outcome.`,
+    expertNuance: rawLesson?.topic?.expertNuance || topic?.expertNuance || `At an advanced level, explain the architecture, assumptions, tradeoffs, limitations, and edge cases behind ${subject}.`,
+  };
+  const levelExplanations = normalizeLevelExplanations(rawLesson?.levelExplanations, normalizedTopic, learner);
+  const levelStages = normalizeLevelStages(rawLesson?.levelStages, rawLesson?.stages, normalizedTopic, learner, levelExplanations);
+
   return {
     topic: {
-      slug: topic?.slug || null,
-      title: rawLesson?.topic?.title || subject,
-      category: topic?.category || rawLesson?.topic?.category || "Custom",
-      shortSummary: rawLesson?.topic?.shortSummary || topic?.shortSummary || `A guided Eggzy lesson for ${subject}.`,
-      foundation: rawLesson?.topic?.foundation || `${subject} becomes easier once you define what it is and why it matters.`,
-      coreIdea: rawLesson?.topic?.coreIdea || `${subject} is easier to understand when you identify its main purpose and parts.`,
-      howItWorks: rawLesson?.topic?.howItWorks || `Follow ${subject} as a sequence from input to process to output.`,
-      realWorldExample: rawLesson?.topic?.realWorldExample || `Think of ${subject} in a real-world example tied to ${learner.interest || "daily life"}.`,
-      summary: rawLesson?.topic?.summary || `${subject} is easiest to remember as purpose, process, and example.`,
+      slug: normalizedTopic.slug,
+      title: normalizedTopic.title,
+      category: normalizedTopic.category,
+      shortSummary: normalizedTopic.shortSummary,
+      foundation: normalizedTopic.foundation,
+      coreIdea: normalizedTopic.coreIdea,
+      howItWorks: normalizedTopic.howItWorks,
+      realWorldExample: normalizedTopic.realWorldExample,
+      summary: normalizedTopic.summary,
     },
     learnerSnapshot: {
       level: learner.learnerLevel,
@@ -575,17 +713,18 @@ function normalizeLesson(rawLesson, { topic, customTopic, learner }) {
       confusionPattern: learner.confusionPattern || "",
       previousBehavior: learner.previousBehavior || "",
     },
-    stages: normalizeStages(rawLesson?.stages, subject),
+    requestedCounts: {
+      flashcards: learner.flashcardCount || 5,
+      quizQuestions: learner.quizQuestionCount || 4,
+    },
+    stages: levelStages[learner.learnerLevel] || levelStages.beginner,
+    levelStages,
     learningModes: {
       analogy: rawLesson?.learningModes?.analogy || `Explain ${subject} with an analogy linked to ${learner.interest || "daily life"}.`,
       stepByStep: rawLesson?.learningModes?.stepByStep || `Break ${subject} into clear steps and teach each one in order.`,
       realLife: rawLesson?.learningModes?.realLife || `Show ${subject} through one practical, real-world example.`,
     },
-    levelExplanations: {
-      child: rawLesson?.levelExplanations?.child || `Explain ${subject} in simple words with one familiar example.`,
-      beginner: rawLesson?.levelExplanations?.beginner || `Explain ${subject} from zero and build up step by step.`,
-      expert: rawLesson?.levelExplanations?.expert || `Explain ${subject} with deeper technical nuance and assumptions.`,
-    },
+    levelExplanations,
     flashcards: normalizeFlashcards(rawLesson?.flashcards, subject, learner.flashcardCount || 5),
     quizQuestions: normalizeQuizQuestions(rawLesson?.quizQuestions, subject, learner.quizQuestionCount || 4),
     adaptiveTips: ensureTextArray(rawLesson?.adaptiveTips, 3, "Pause after each stage and explain it back in one sentence."),
@@ -595,8 +734,136 @@ function normalizeLesson(rawLesson, { topic, customTopic, learner }) {
   };
 }
 
-function normalizeStages(stages, subject) {
-  const defaults = [
+function normalizeLevelExplanations(levelExplanations, topicContext, learner) {
+  const defaults = buildDefaultLevelExplanations(topicContext, learner);
+  return {
+    child: String(levelExplanations?.child || defaults.child).trim(),
+    beginner: String(levelExplanations?.beginner || defaults.beginner).trim(),
+    expert: String(levelExplanations?.expert || defaults.expert).trim(),
+  };
+}
+
+function normalizeLevelStages(levelStages, sharedStages, topicContext, learner, levelExplanations) {
+  const sharedDeck = normalizeStages(sharedStages, topicContext.title, buildSharedStageFallbacks(topicContext, learner));
+  return {
+    child: normalizeStageDeck(levelStages?.child, buildDefaultStageDeck("child", topicContext, learner, sharedDeck, levelExplanations.child)),
+    beginner: normalizeStageDeck(levelStages?.beginner, buildDefaultStageDeck("beginner", topicContext, learner, sharedDeck, levelExplanations.beginner)),
+    expert: normalizeStageDeck(levelStages?.expert, buildDefaultStageDeck("expert", topicContext, learner, sharedDeck, levelExplanations.expert)),
+  };
+}
+
+function normalizeStageDeck(stageDeck, defaults) {
+  if (!Array.isArray(stageDeck) || stageDeck.length < defaults.length) {
+    return defaults;
+  }
+
+  return defaults.map((fallback, index) => ({
+    id: fallback.id,
+    title: fallback.title,
+    body: String(stageDeck[index]?.body || fallback.body).trim(),
+  }));
+}
+
+function buildDefaultLevelExplanations(topicContext, learner) {
+  const tone = getMoodTone(learner.mood);
+  const styleLens = getStyleLens(learner.preferredStyle);
+  const learnerPrefix = learner.learnerName ? `${learner.learnerName}, ` : "";
+
+  return {
+    child: `${learnerPrefix}${tone.encouragement} ${topicContext.childAnalogy} Start with the simple job of ${topicContext.title}, then gently explain the most important parts, then show the process like a chain of small moves. Use easy words, one vivid example, and one memory line tied to ${learner.interest || "everyday life"} so the learner can actually picture the idea instead of just repeating the name.`,
+    beginner: `${learnerPrefix}${styleLens.beginnerLead} Begin by defining ${topicContext.title} from zero, including what problem it solves and why that problem matters. Then connect the purpose to the mechanism, explain the steps in order, and close with one practical example that proves the learner understands both meaning and process, not just terminology.`,
+    expert: `${learnerPrefix}${getLevelGuide("expert").expertLead} Treat ${topicContext.title} as a system that has scope, internal structure, assumptions, dependencies, tradeoffs, and failure modes. Tie the explanation to relevant historical context, explain why the mechanism works the way it does, and surface the nuanced details that separate a surface definition from real technical understanding.`,
+  };
+}
+
+function buildSharedStageFallbacks(topicContext, learner) {
+  const tone = getMoodTone(learner.mood);
+  const styleLens = getStyleLens(learner.preferredStyle);
+  const levelGuide = getLevelGuide(learner.learnerLevel);
+  return [
+    { id: "foundation", title: "Foundation", body: `${levelGuide.foundationLead} ${topicContext.foundation}` },
+    { id: "core", title: "Core Idea", body: `${styleLens.coreFraming} ${topicContext.coreIdea}` },
+    { id: "how", title: "How It Works", body: `${levelGuide.processHint} ${topicContext.howItWorks}` },
+    { id: "example", title: "Real-World Example", body: `${styleLens.exampleLead} ${topicContext.realWorldExample}` },
+    { id: "summary", title: "Summary", body: `${tone.memoryCue} ${topicContext.summary}` },
+  ];
+}
+
+function buildDefaultStageDeck(level, topicContext, learner, sharedDeck, levelExplanation) {
+  const tone = getMoodTone(learner.mood);
+  const styleLens = getStyleLens(learner.preferredStyle);
+  const learnerPrefix = learner.learnerName ? `${learner.learnerName}, ` : "";
+  const interestHook = learner.interest || "everyday life";
+  const shared = sharedDeck.map((stage) => stage.body);
+
+  if (level === "child") {
+    return [
+      { id: "foundation", title: "Foundation", body: `${learnerPrefix}${tone.encouragement} Start with the plain meaning of ${topicContext.title}. ${topicContext.foundation} Use familiar words, explain what job the idea is trying to do, and connect the opening picture to ${interestHook} so the learner feels safe before any harder detail shows up. ${shared[0]}` },
+      { id: "core", title: "Core Idea", body: `${learnerPrefix}${topicContext.childAnalogy} After the picture is clear, name the key pieces in child-sized language. ${topicContext.coreIdea} Keep the number of moving parts small, explain what each part helps with, and remind the learner how those parts work together to finish the main job. ${shared[1]}` },
+      { id: "how", title: "How It Works", body: `${learnerPrefix}Walk through ${topicContext.title} slowly like a chain of little moves. ${topicContext.howItWorks} Pause at each step, say what changed, and avoid jumping ahead so the learner can follow the process without losing the thread. ${shared[2]}` },
+      { id: "example", title: "Real-World Example", body: `${learnerPrefix}Now put ${topicContext.title} inside a scene the learner can actually imagine. ${topicContext.realWorldExample} If possible, link the example back to ${interestHook}, then compare each part of the example to the real concept so the picture becomes memory, not just decoration. ${shared[3]}` },
+      { id: "summary", title: "Summary", body: `${learnerPrefix}${tone.memoryCue} ${topicContext.summary} End with one short repeatable chain: what it is, what it does, how it moves, and where the learner would notice it. ${levelExplanation}` },
+    ];
+  }
+
+  if (level === "expert") {
+    return [
+      { id: "foundation", title: "Foundation", body: `${learnerPrefix}Anchor ${topicContext.title} in its domain first. ${topicContext.foundation} Clarify scope, vocabulary, historical origin, and why the problem it addresses became important in the first place. Frame the foundation so the learner can tell where the concept starts, where it ends, and what adjacent ideas it is often confused with. ${shared[0]}` },
+      { id: "core", title: "Core Idea", body: `${learnerPrefix}${topicContext.expertNuance} Move beyond the headline definition and explain the architecture, governing logic, and dependencies that make ${topicContext.title} work. ${topicContext.coreIdea} Make explicit which assumptions must hold and which tradeoffs appear when the idea is applied in real systems. ${shared[1]}` },
+      { id: "how", title: "How It Works", body: `${learnerPrefix}Describe the mechanism of ${topicContext.title} with technical precision. ${topicContext.howItWorks} Follow the internal flow step by step, but also point out bottlenecks, failure modes, edge cases, and the conditions under which the mechanism behaves differently than expected. ${shared[2]}` },
+      { id: "example", title: "Real-World Example", body: `${learnerPrefix}Use a realistic advanced use case to ground the abstraction. ${topicContext.realWorldExample} Explain why this example is representative, what it hides, and what a practitioner should watch for when applying the concept outside the classroom or textbook version. ${shared[3]}` },
+      { id: "summary", title: "Summary", body: `${learnerPrefix}${tone.memoryCue} ${topicContext.summary} Close by synthesizing scope, mechanism, tradeoffs, and application into one expert mental model that can support deeper analysis or discussion. ${levelExplanation}` },
+    ];
+  }
+
+  return [
+    { id: "foundation", title: "Foundation", body: `${learnerPrefix}Build the topic from zero. ${topicContext.foundation} Define the term clearly, explain what problem it solves, and introduce only the vocabulary the learner truly needs before moving forward. The goal is to make the first layer solid enough that later detail feels earned instead of overwhelming. ${shared[0]}` },
+    { id: "core", title: "Core Idea", body: `${learnerPrefix}${styleLens.beginnerLead} Explain the central mechanism of ${topicContext.title} in a structured way. ${topicContext.coreIdea} Name the important parts, describe the role each part plays, and connect those roles back to the overall goal so the learner can reason about the concept, not just repeat a definition. ${shared[1]}` },
+    { id: "how", title: "How It Works", body: `${learnerPrefix}Now walk through the process from start to finish. ${topicContext.howItWorks} Make the sequence explicit, note what changes at each stage, and point out why the order matters so the learner can reconstruct the mechanism from memory later. ${shared[2]}` },
+    { id: "example", title: "Real-World Example", body: `${learnerPrefix}Use a grounded example to lock the concept into place. ${topicContext.realWorldExample} After describing the example, map it back to the process and purpose so the learner sees clearly how the abstract idea behaves in a practical setting. ${shared[3]}` },
+    { id: "summary", title: "Summary", body: `${learnerPrefix}${tone.memoryCue} ${topicContext.summary} Finish by compressing the lesson into one clean chain: problem, purpose, process, example, and why the concept matters. ${levelExplanation}` },
+  ];
+}
+
+function isLessonRichEnough(lesson) {
+  const levelMinimums = { child: 220, beginner: 260, expert: 300 };
+  return ["child", "beginner", "expert"].every((level) => {
+    const explanation = String(lesson?.levelExplanations?.[level] || "");
+    const stages = lesson?.levelStages?.[level] || [];
+    return explanation.length >= levelMinimums[level] && stages.length === 5 && stages.every((stage) => String(stage?.body || "").length >= 90);
+  });
+}
+
+function summarizeLessonGaps(lesson) {
+  const levelMinimums = { child: 220, beginner: 260, expert: 300 };
+  const notes = [];
+
+  for (const level of ["child", "beginner", "expert"]) {
+    const explanation = String(lesson?.levelExplanations?.[level] || "");
+    if (explanation.length < levelMinimums[level]) {
+      notes.push(`- ${level} explanation is too short or not fully teaching the topic.`);
+    }
+    const stages = lesson?.levelStages?.[level] || [];
+    if (stages.length !== 5) {
+      notes.push(`- ${level} is missing a complete five-stage lesson deck.`);
+      continue;
+    }
+    stages.forEach((stage) => {
+      if (String(stage?.body || "").length < 90) {
+        notes.push(`- ${level} ${stage.title} stage is still too shallow.`);
+      }
+    });
+  }
+
+  if (!notes.length) {
+    notes.push("- Strengthen specificity further and make the explanations feel more learner-aware.");
+  }
+
+  return notes.join("\n");
+}
+
+function normalizeStages(stages, subject, defaults = null) {
+  const fallbackDeck = defaults || [
     { id: "foundation", title: "Foundation", body: `${subject} starts making sense once we define what it is and why it matters.` },
     { id: "core", title: "Core Idea", body: `The core idea of ${subject} becomes clearer when you focus on the main purpose and parts.` },
     { id: "how", title: "How It Works", body: `Walk through ${subject} step by step, from beginning to outcome.` },
@@ -604,14 +871,14 @@ function normalizeStages(stages, subject) {
     { id: "summary", title: "Summary", body: `Remember ${subject} as purpose, process, and example.` },
   ];
 
-  if (!Array.isArray(stages) || stages.length < 5) {
-    return defaults;
+  if (!Array.isArray(stages) || stages.length < fallbackDeck.length) {
+    return fallbackDeck;
   }
 
-  return defaults.map((fallback, index) => ({
+  return fallbackDeck.map((fallback, index) => ({
     id: fallback.id,
     title: fallback.title,
-    body: stages[index]?.body || fallback.body,
+    body: String(stages[index]?.body || fallback.body).trim(),
   }));
 }
 
@@ -622,7 +889,6 @@ function ensureTextArray(value, count, fallback) {
   }
   return items.slice(0, count);
 }
-
 function normalizeFlashcards(flashcards, subject, count = 5) {
   const items = Array.isArray(flashcards)
     ? flashcards
@@ -1142,7 +1408,6 @@ function buildAuthUser(decodedToken) {
     name: decodedToken.name || decodedToken.email || null,
   };
 }
-
 
 
 

@@ -387,7 +387,7 @@ export default function App() {
   async function handleFeedbackSubmit() {
     if (!sessionId || !lesson) return;
     setFeedbackLoading(true);
-    const localAnalysis = analyzeTeachBack(lesson, learnerExplanation, confusionArea, interest, slowQuestions);
+    const localAnalysis = analyzeTeachBack(lesson, learnerExplanation, confusionArea, interest, slowQuestions, activeLevel);
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/feedback`, {
@@ -400,7 +400,7 @@ export default function App() {
       setFeedback({ ...data, ...localAnalysis });
       setLessonPhase("teachback");
     } catch {
-      setFeedback(createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson, interest, slowQuestions }));
+      setFeedback(createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson, interest, slowQuestions, activeLevel }));
       setLessonPhase("teachback");
     } finally {
       setFeedbackLoading(false);
@@ -668,11 +668,11 @@ export default function App() {
               </div>
               <div className="snapshot-card">
                 <span className="eyebrow">{uiCopy.learnerSnapshot}</span>
-                <div className="snapshot-line"><span>{uiCopy.level}</span><strong>{capitalize(lesson.learnerSnapshot.level)}</strong></div>
+                <div className="snapshot-line"><span>{uiCopy.level}</span><strong>{currentLevel?.label || capitalize(activeLevel)}</strong></div>
                 <div className="snapshot-line"><span>{uiCopy.mood}</span><strong>{uiCopy.moods?.[lesson.learnerSnapshot.mood] || capitalize(lesson.learnerSnapshot.mood)}</strong></div>
-                {lesson.learnerSnapshot.level !== "child" ? <div className="snapshot-line"><span>{uiCopy.style}</span><strong>{uiCopy.styles?.[lesson.learnerSnapshot.preferredStyle] || capitalize(lesson.learnerSnapshot.preferredStyle)}</strong></div> : null}
+                {activeLevel !== "child" ? <div className="snapshot-line"><span>{uiCopy.style}</span><strong>{uiCopy.styles?.[lesson.learnerSnapshot.preferredStyle] || capitalize(lesson.learnerSnapshot.preferredStyle)}</strong></div> : null}
                 <div className="snapshot-line"><span>{uiCopy.language}</span><strong>{lesson.learnerSnapshot.language || "English"}</strong></div>
-                {lesson.learnerSnapshot.level === "child" ? <div className="snapshot-line"><span>{uiCopy.interest}</span><strong>{lesson.learnerSnapshot.interest || "General"}</strong></div> : null}
+                {activeLevel === "child" ? <div className="snapshot-line"><span>{uiCopy.interest}</span><strong>{lesson.learnerSnapshot.interest || "General"}</strong></div> : null}
               </div>
             </section>
 
@@ -705,14 +705,14 @@ export default function App() {
                   <div className="slide-shell">
                     <button className="nav-arrow" onClick={() => setActiveStageIndex((current) => Math.max(0, current - 1))} disabled={activeStageIndex === 0}>&lt;</button>
                     <div className="slide-card">
-                      <div className="slide-progress">{activeStageIndex + 1} / {lesson.stages.length}</div>
+                      <div className="slide-progress">{activeStageIndex + 1} / {activeStages.length}</div>
                       <h3>{activeStage?.title}</h3>
                       <p>{activeStage?.body}</p>
                     </div>
-                    <button className="nav-arrow" onClick={() => setActiveStageIndex((current) => Math.min(lesson.stages.length - 1, current + 1))} disabled={activeStageIndex === lesson.stages.length - 1}>&gt;</button>
+                    <button className="nav-arrow" onClick={() => setActiveStageIndex((current) => Math.min(activeStages.length - 1, current + 1))} disabled={activeStageIndex === activeStages.length - 1}>&gt;</button>
                   </div>
                   <div className="progress-dots">
-                    {lesson.stages.map((stage, index) => (
+                    {activeStages.map((stage, index) => (
                       <button key={stage.id} className={`progress-dot ${index === activeStageIndex ? "active" : ""}`} onClick={() => setActiveStageIndex(index)}>{stage.title}</button>
                     ))}
                   </div>
@@ -919,12 +919,18 @@ function enrichLesson(lesson, interest, learnerName = "") {
   const requestedFlashcards = lesson?.requestedCounts?.flashcards || 5;
   const requestedQuizQuestions = lesson?.requestedCounts?.quizQuestions || 4;
   const name = learnerName.trim();
+  const levelStages = personalizeLevelStages(lesson.levelStages || buildLevelStageDecks(lesson, interest), name);
+  const learnerLevel = lesson?.learnerSnapshot?.level || "beginner";
+
   return {
     ...lesson,
+    requestedCounts: { flashcards: requestedFlashcards, quizQuestions: requestedQuizQuestions },
     learnerSnapshot: { ...(lesson.learnerSnapshot || {}), learnerName: name || lesson?.learnerSnapshot?.learnerName || "" },
     learningModes: personalizeNarratives(lesson.learningModes || {}, name),
     levelExplanations: personalizeNarratives(lesson.levelExplanations || {}, name),
-    flashcards: lesson.flashcards?.length ? lesson.flashcards : buildFlashcards(lesson, requestedFlashcards),
+    levelStages,
+    stages: levelStages[learnerLevel] || personalizeStages(lesson.stages || [], name),
+    flashcards: lesson.flashcards?.length ? lesson.flashcards : buildFlashcards({ ...lesson, levelStages }, requestedFlashcards),
     quizQuestions: lesson.quizQuestions?.length ? lesson.quizQuestions : buildQuizQuestions(lesson, interest, requestedQuizQuestions),
   };
 }
@@ -940,9 +946,75 @@ function personalizeText(text, learnerName) {
   return `${learnerName}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
 }
 
+function personalizeStages(stages, learnerName) {
+  if (!learnerName) return stages;
+  return (stages || []).map((stage) => ({ ...stage, body: personalizeText(stage.body, learnerName) }));
+}
+
+function personalizeLevelStages(levelStages, learnerName) {
+  return Object.fromEntries(Object.entries(levelStages || {}).map(([key, stages]) => [key, personalizeStages(stages, learnerName)]));
+}
+
+function getLessonStagesForLevel(lesson, level) {
+  return lesson?.levelStages?.[level] || lesson?.stages || [];
+}
+
+function buildLevelStageDecks(lesson, interest = "") {
+  const topic = lesson?.topic || {};
+  const learner = lesson?.learnerSnapshot || {};
+  const sharedStages = lesson?.stages || [];
+  const sharedById = Object.fromEntries(sharedStages.map((stage) => [stage.id, stage.body]));
+  const title = topic.title || "the topic";
+  const foundation = sharedById.foundation || topic.foundation || `${title} starts making sense once we define what it is and why it matters.`;
+  const coreIdea = sharedById.core || topic.coreIdea || `The core idea of ${title} becomes clearer when you focus on the main purpose and parts.`;
+  const howItWorks = sharedById.how || topic.howItWorks || `Walk through ${title} step by step, from beginning to outcome.`;
+  const realWorldExample = sharedById.example || topic.realWorldExample || `Anchor ${title} to one practical scenario so the process feels real.`;
+  const summary = sharedById.summary || topic.summary || `Remember ${title} as purpose, process, and example.`;
+
+  return {
+    child: buildLevelStageDeck({ level: "child", title, foundation, coreIdea, howItWorks, realWorldExample, summary, learner, narrative: lesson?.levelExplanations?.child || "", interest }),
+    beginner: buildLevelStageDeck({ level: "beginner", title, foundation, coreIdea, howItWorks, realWorldExample, summary, learner, narrative: lesson?.levelExplanations?.beginner || "", interest }),
+    expert: buildLevelStageDeck({ level: "expert", title, foundation, coreIdea, howItWorks, realWorldExample, summary, learner, narrative: lesson?.levelExplanations?.expert || "", interest }),
+  };
+}
+
+function buildLevelStageDeck({ level, title, foundation, coreIdea, howItWorks, realWorldExample, summary, learner, narrative, interest }) {
+  const tone = getMoodTone(learner?.mood || "focused");
+  const styleLens = getStyleLens(learner?.preferredStyle || "analogy");
+  const childInterest = learner?.interest || interest || "everyday life";
+
+  if (level === "child") {
+    return [
+      { id: "foundation", title: "Foundation", body: `${tone.encouragement} Start with the plain meaning of ${title}. ${foundation} Use easy words, point out the one big job this idea is doing, and connect the opening picture to ${childInterest} so it feels familiar before anything technical appears.` },
+      { id: "core", title: "Core Idea", body: `Now shrink the idea down to its most important moving pieces. ${coreIdea} Explain what each part helps with, compare the idea to something a child can picture, and keep the chain of cause and effect visible all the way through.` },
+      { id: "how", title: "How It Works", body: `Walk through ${title} step by step like a short sequence of moves. ${howItWorks} Pause after each step to say what changed, why it changed, and what the learner should notice before moving to the next part.` },
+      { id: "example", title: "Real-World Example", body: `Put ${title} into a scene a child can imagine. ${realWorldExample} If possible, tie it back to ${childInterest}, then compare the example to the real concept so the learner understands both the picture and the truth behind the picture.` },
+      { id: "summary", title: "Summary", body: `${tone.memoryCue} ${summary} End with a repeatable memory chain: what it is, what it does, how it moves, and where the learner would notice it. ${narrative}` },
+    ];
+  }
+
+  if (level === "expert") {
+    return [
+      { id: "foundation", title: "Foundation", body: `Start with scope, domain, and context. ${foundation} Clarify the exact boundaries of ${title}, mention the historical or conceptual reason it became important, and define the key terms a serious learner needs in order to follow the rest of the mechanism cleanly.` },
+      { id: "core", title: "Core Idea", body: `Move beyond the surface definition and explain the architecture of ${title}. ${coreIdea} Show how the critical parts interact, what assumptions are hiding underneath the model, and which tradeoffs matter once the idea is applied in a real system.` },
+      { id: "how", title: "How It Works", body: `Describe the mechanism with technical precision. ${howItWorks} Track dependencies, internal flow, edge cases, and the conditions under which the process behaves differently than a simplified explanation would suggest.` },
+      { id: "example", title: "Real-World Example", body: `Use a realistic advanced use case to ground the abstraction. ${realWorldExample} Explain why the example is representative, what limitations it has, and what an experienced learner should watch for when transferring the same concept into a new context.` },
+      { id: "summary", title: "Summary", body: `${tone.memoryCue} ${summary} Compress the lesson into a rigorous mental model that covers origin, structure, mechanism, tradeoffs, and application. ${narrative}` },
+    ];
+  }
+
+  return [
+    { id: "foundation", title: "Foundation", body: `Build ${title} from zero. ${foundation} Define the term, explain the problem it solves, and introduce the few pieces of vocabulary that actually matter so the learner has a stable base before meeting the mechanism.` },
+    { id: "core", title: "Core Idea", body: `${styleLens.beginnerLead} ${coreIdea} Name the important parts, explain the role of each part, and connect those roles back to the overall goal so the learner understands meaning and mechanism together instead of memorizing disconnected facts.` },
+    { id: "how", title: "How It Works", body: `Walk through the process in order. ${howItWorks} Make each transition explicit, note what changes at each stage, and explain why the order matters so the learner can reconstruct the flow from memory later.` },
+    { id: "example", title: "Real-World Example", body: `Use a grounded case to lock the concept into place. ${realWorldExample} After describing the example, map it back to the process and purpose so the learner sees exactly how the abstract idea behaves in the real world.` },
+    { id: "summary", title: "Summary", body: `${tone.memoryCue} ${summary} Finish with one clean chain the learner can repeat: problem, purpose, process, example, and why the topic matters. ${narrative}` },
+  ];
+}
+
 function buildFlashcards(lesson, count = 5) {
   const topic = lesson?.topic?.title || "the topic";
-  const stages = lesson?.stages || [];
+  const stages = getLessonStagesForLevel(lesson, lesson?.learnerSnapshot?.level || "beginner");
   const cards = stages.map((stage) => ({ front: `${stage.title}: what matters here?`, back: stage.body }));
   const extras = (lesson?.confusionHotspots || []).slice(0, Math.max(2, count - cards.length)).map((item, index) => ({ front: `Common confusion ${index + 1} in ${topic}`, back: item }));
   const deck = [...cards, ...extras];
@@ -970,17 +1042,10 @@ function createLocalLesson({ topic, learnerLevel, mood, preferredStyle, interest
   const confusionHotspots = topic.commonConfusions?.length ? topic.commonConfusions : ["Jumping to the result before understanding the process", "Using a label without defining what it means", "Remembering the example but not the mechanism"];
   const reversePrompt = topic.reversePrompt || `Teach ${title} back as if you were helping a classmate.`;
 
-  return {
+  const lessonShell = {
     topic: { slug: topic.slug || null, title, category: topic.category || "Custom", shortSummary, foundation, coreIdea, howItWorks, realWorldExample, summary },
     learnerSnapshot: { level: learnerLevel, mood, preferredStyle, interest, language, learnerName },
     requestedCounts: { flashcards: flashcardCount, quizQuestions: quizQuestionCount },
-    stages: [
-      { id: "foundation", title: "Foundation", body: `${levelGuide.foundationLead} ${foundation} Start by naming the problem this concept solves and why that problem matters in the real world.` },
-      { id: "core", title: "Core Idea", body: `${styleLens.coreFraming} ${coreIdea} Focus on the central mechanism, then explain how the parts work together.` },
-      { id: "how", title: "How It Works", body: `${levelGuide.processHint} ${howItWorks} Walk through the process from start to finish, and pause after each step to ask what changed.` },
-      { id: "example", title: "Real-World Example", body: `${styleLens.exampleLead} ${realWorldExample} Now compare the example back to the core idea so the learner sees how theory becomes practice.` },
-      { id: "summary", title: "Summary", body: `${tone.memoryCue} ${summary} To remember it, hold onto this chain: purpose -> mechanism -> steps -> real-world result.` },
-    ],
     learningModes: {
       analogy: `${styleLens.beginnerLead} ${childAnalogy}`,
       stepByStep: `${levelGuide.processHint} ${howItWorks} First understand the setup, then the action, then the result.`,
@@ -999,12 +1064,20 @@ function createLocalLesson({ topic, learnerLevel, mood, preferredStyle, interest
     confusionHotspots,
     checkInQuestions: [`In one sentence, what is the main job of ${title}?`, "Which part still feels unclear: the idea, the process, or the example?", reversePrompt],
   };
+
+  const levelStages = buildLevelStageDecks(lessonShell, interest);
+
+  return {
+    ...lessonShell,
+    levelStages,
+    stages: levelStages[learnerLevel],
+  };
 }
 
-function createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson, interest, slowQuestions }) {
-  const analysis = analyzeTeachBack(lesson, learnerExplanation, confusionArea, interest, slowQuestions);
+function createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson, interest, slowQuestions, activeLevel }) {
+  const analysis = analyzeTeachBack(lesson, learnerExplanation, confusionArea, interest, slowQuestions, activeLevel);
   if (confusionArea.trim()) {
-    return { ...analysis, nextAction: "reteach", coachingResponse: `Focus on "${confusionArea}" first. Re-read the core idea, then reteach it using one concrete example and one step-by-step explanation.` };
+    return { ...analysis, nextAction: "reteach", coachingResponse: `Focus on "${confusionArea}" first. Re-read the ${findRelevantStage(confusionArea, lesson, activeLevel)} slide, then reteach it using one concrete example and one step-by-step explanation.` };
   }
   if (understood && analysis.overlapScore >= 0.25) {
     return { ...analysis, nextAction: "advance", coachingResponse: "Nice work. You captured important ideas. Now tighten your understanding by revisiting the concepts Eggzy marked as missing and the quiz items where you hesitated." };
@@ -1012,8 +1085,9 @@ function createLocalFeedback({ understood, learnerExplanation, confusionArea, le
   return { ...analysis, nextAction: "reteach", coachingResponse: `Let's rebuild it carefully. Start with the purpose of ${lesson?.topic?.title || "the topic"}, then explain the mechanism, then end with one real-world example.` };
 }
 
-function analyzeTeachBack(lesson, learnerExplanation, confusionArea, interest, slowQuestions) {
-  const reference = `${lesson?.topic?.foundation || ""} ${lesson?.topic?.coreIdea || ""} ${lesson?.topic?.howItWorks || ""} ${lesson?.topic?.realWorldExample || ""} ${lesson?.topic?.summary || ""}`;
+function analyzeTeachBack(lesson, learnerExplanation, confusionArea, interest, slowQuestions, activeLevel) {
+  const activeStages = getLessonStagesForLevel(lesson, activeLevel);
+  const reference = [lesson?.levelExplanations?.[activeLevel] || "", ...activeStages.map((stage) => stage.body)].join(" ");
   const overlapScore = scoreExplanation(learnerExplanation, reference);
   const keywords = extractKeywords(lesson);
   const learnerTokens = new Set(tokenize(learnerExplanation));
@@ -1022,7 +1096,7 @@ function analyzeTeachBack(lesson, learnerExplanation, confusionArea, interest, s
   const slowIds = slowQuestions.map((item) => item.id);
   const slowPrompts = (lesson?.quizQuestions || buildQuizQuestions(lesson, interest)).filter((item) => slowIds.includes(item.id)).map((item) => item.prompt);
   const reteachSteps = [
-    `Return to the ${findRelevantStage(confusionArea, lesson)} slide and explain it in simpler words.`,
+    `Return to the ${findRelevantStage(confusionArea, lesson, activeLevel)} slide and explain it in simpler words.`,
     missedConcepts[0] ? `Make sure you include this missing idea next time: ${missedConcepts[0]}.` : `Rebuild the explanation in the order purpose -> mechanism -> example.`,
     slowPrompts[0] ? `Revisit this tricky quiz idea: ${slowPrompts[0]}` : `Use one real-life example tied to ${interest || "daily life"}.`,
   ];
@@ -1111,10 +1185,10 @@ function scoreExplanation(learnerText, referenceText) {
   return Number((matches / learnerTokens.length).toFixed(2));
 }
 
-function findRelevantStage(confusionArea, lesson) {
+function findRelevantStage(confusionArea, lesson, activeLevel = lesson?.learnerSnapshot?.level || "beginner") {
   if (!confusionArea.trim()) return "Core Idea";
   const lower = confusionArea.toLowerCase();
-  const stage = lesson?.stages?.find((item) => item.body.toLowerCase().includes(lower) || item.title.toLowerCase().includes(lower));
+  const stage = getLessonStagesForLevel(lesson, activeLevel).find((item) => item.body.toLowerCase().includes(lower) || item.title.toLowerCase().includes(lower));
   return stage ? stage.title : "Core Idea";
 }
 
@@ -1150,7 +1224,6 @@ const styles = `
 @media (max-width:1080px){.grid.three-up,.quiz-options,.level-grid,.grid.two-up,.teachback-grid,.choice-grid,.dashboard-grid{grid-template-columns:1fr}.hero-panel,.lesson-hero,.slide-shell{flex-direction:column}.nav-arrow{width:100%}.slide-card{min-height:320px}.slide-card h3{font-size:38px}.slide-card p{font-size:18px}}
 @media (max-width:720px){.page-frame{width:min(100% - 20px,1240px)}.topbar,.topbar-actions{flex-direction:column;align-items:flex-start}.brand-title{font-size:28px}.hero-copy h1{font-size:42px}.cta-button{width:100%}.input-shell{flex-direction:column}.flashcard-face{font-size:22px}}
 `;
-
 
 
 
