@@ -608,20 +608,21 @@ export default function App() {
   const allQuestionsAnswered = quizItems.length > 0 && quizItems.every((item) => quizAnswers[item.id] != null);
   const quizPerfect = allQuestionsAnswered && quizScore === quizItems.length;
   const quizNeedsRevision = quizSubmitted && allQuestionsAnswered && !quizPerfect;
-  const showRevisionHub = lessonPhase !== "explanation";
-  const showQuiz = lessonPhase === "quiz" || lessonPhase === "teachback";
-  const showFlashcards = lessonPhase === "flashcards" || lessonPhase === "teachback";
+  const showRevisionHub = lessonPhase !== "explanation" && lessonPhase !== "teachback";
+  const showQuiz = lessonPhase === "quiz";
+  const showFlashcards = lessonPhase === "flashcards";
   const showTeachBack = lessonPhase === "teachback";
   const showExplanationPhase = lessonPhase === "explanation";
 
   return (
     <div className="app-shell">
       <style>{styles}</style>
+        <StarfieldCanvas theme={theme} />
       <div className="background-orb orb-one" />
       <div className="background-orb orb-two" />
       <div className="page-frame">
-        <header className="topbar">
-          <div className="brand-wrap">
+        <header className="topbar polished-topbar">
+          <div className="brand-wrap brand-wrap-polished">
             <div className="brand-chip"><EggzyMascot theme={theme} compact /></div>
             <div>
               <div className="brand-title">Eggzy</div>
@@ -638,8 +639,12 @@ export default function App() {
               <span>{theme === "dark" ? uiCopy.themeDarkQuest : uiCopy.themeSunnyQuest}</span>
               <span>{theme === "dark" ? uiCopy.themeMoonOn : uiCopy.themeSunOn}</span>
             </button>
-          </div>
-        </header>
+          <div className="streak-badge"><span>{"\u{1F525}"}</span><small>{streakDays} day streak</small></div></div>
+          </header>
+
+        <section className="stats-strip">
+          {quickStats.map((item) => <StatCard key={item.label} value={item.value} label={item.label} />)}
+        </section>
 
         {dashboardOpen ? (
           <div className="modal-backdrop">
@@ -772,27 +777,35 @@ export default function App() {
 
         {lesson ? (
           <div ref={resultsRef} className="lesson-stack">
-            <section className="panel lesson-hero">
-              <div>
-                <span className="eyebrow">{uiCopy.currentMission}</span>
-                <h2>{lesson.topic.title}</h2>
-                <p>{lesson.topic.shortSummary}</p>
-                <div className="action-row top-gap"><button type="button" className="mini-button secondary-button" onClick={() => { setLesson(null); setSessionId(null); setFeedback(null); setLessonPhase("explanation"); }}>{uiCopy.chooseConceptTitle}</button></div>
-              </div>
-              <div className="snapshot-card">
+            <section className="lesson-overview-grid">
+              <section className="panel lesson-hero lesson-hero-main">
+                <div>
+                  <span className="eyebrow live-eyebrow"><span className="live-dot" />{uiCopy.currentMission}</span>
+                  <h2>{lesson.topic.title}</h2>
+                  <p>{lesson.topic.shortSummary}</p>
+                  <div className="action-row top-gap hero-actions">
+                    <button type="button" className="cta-button" onClick={() => setLessonPhase("explanation")}>Start with Eggzy</button>
+                    <button type="button" className="mini-button secondary-button" onClick={() => { setLesson(null); setSessionId(null); setFeedback(null); setLessonPhase("explanation"); }}>Pick another topic</button>
+                  </div>
+                </div>
+                <div className="hero-mascot-inline"><EggzyMascot theme={theme} /></div>
+              </section>
+              <section className="snapshot-card snapshot-card-hero panel">
+                <div className="snapshot-avatar"><EggzyMascot theme={theme} compact /></div>
+                <strong className="snapshot-name">{effectiveLearnerName || authUser?.displayName || "Learner"}</strong>
                 <span className="eyebrow">{uiCopy.learnerSnapshot}</span>
                 <div className="snapshot-line"><span>{uiCopy.level}</span><strong>{currentLevel?.label || capitalize(activeLevel)}</strong></div>
                 <div className="snapshot-line"><span>{uiCopy.mood}</span><strong>{uiCopy.moods?.[lesson.learnerSnapshot.mood] || capitalize(lesson.learnerSnapshot.mood)}</strong></div>
                 {activeLevel !== "child" ? <div className="snapshot-line"><span>{uiCopy.style}</span><strong>{uiCopy.styles?.[lesson.learnerSnapshot.preferredStyle] || capitalize(lesson.learnerSnapshot.preferredStyle)}</strong></div> : null}
                 <div className="snapshot-line"><span>{uiCopy.language}</span><strong>{lesson.learnerSnapshot.language || "English"}</strong></div>
                 {activeLevel === "child" ? <div className="snapshot-line"><span>{uiCopy.interest}</span><strong>{lesson.learnerSnapshot.interest || "General"}</strong></div> : null}
-              </div>
+              </section>
             </section>
 
             {showExplanationPhase ? (
               <>
                 <section className="panel deep-explainer">
-                  <div className="tabs">
+                  <div className="tabs tabs-row polished-level-tabs">
                     {localizedLevels.map((level) => (
                       <button key={level.id} className={`tab ${activeLevel === level.id ? "active" : ""}`} onClick={() => setActiveLevel(level.id)}>
                         <span className="dot" style={{ background: level.accent }} />
@@ -800,12 +813,12 @@ export default function App() {
                       </button>
                     ))}
                   </div>
-                  <div className="explanation-card long-form" style={{ borderColor: currentLevel?.accent }}>
+                  <div key={activeLevel} className="explanation-card long-form content-card animated-explanation" style={{ borderColor: currentLevel?.accent }}>
                     <span className="eyebrow">{activeExplanationLabel}</span>
                     <p>{activeLevelText}</p>
                   </div>
                   {activeLevel !== "child" ? (
-                    <div className="learning-modes grid three-up">
+                    <div className="learning-modes grid three-up polished-lenses">
                       <ModeCard title={uiCopy.analogyLens} body={lesson.learningModes.analogy} />
                       <ModeCard title={uiCopy.stepByStepLens} body={lesson.learningModes.stepByStep} />
                       <ModeCard title={uiCopy.realLifeLens} body={lesson.learningModes.realLife} />
@@ -837,7 +850,7 @@ export default function App() {
             ) : null}
 
             {showRevisionHub ? (
-              <section className="panel revision-choice-panel">
+              <section className="panel revision-choice-panel polished-quiz-strip"><div className="quiz-strip-copy"><strong>Ready to test yourself?</strong><span>{quizTarget} questions - saves to your weak-topic memory</span></div>
                 <div className="choice-grid">
                   <div className={`path-card ${lessonPhase === "quiz" ? "active" : ""}`}>
                     <span className="eyebrow">{uiCopy.revisionHub}</span>
@@ -1315,7 +1328,7 @@ const styles = `
 :root { --bg:#08130f; --bg-soft:#10211a; --panel:#14271f; --panel-2:#183126; --panel-3:#20392d; --text:#f6fff7; --muted:#b2c7b8; --line:rgba(223,241,228,0.12); --shadow:0 18px 50px rgba(0,0,0,0.30); --lime:#58cc02; --lime-deep:#46a302; --sun:#ffd84a; --sky:#7cb8ff; --danger:#ff6b6b; }
 :root[data-theme="light"] { --bg:#f7f1de; --bg-soft:#efe6cb; --panel:#fffdf5; --panel-2:#faf4e3; --panel-3:#f3ecd8; --text:#1d241d; --muted:#6f7668; --line:rgba(72,61,38,0.10); --shadow:0 18px 50px rgba(96,82,49,0.10); --lime:#58cc02; --lime-deep:#46a302; --sun:#ffca3a; --sky:#4d8ff7; --danger:#f25f5c; }
 *{box-sizing:border-box} body{margin:0;font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text)} button,input,textarea,select{font:inherit}
-.app-shell{min-height:100vh;background:radial-gradient(circle at top left, rgba(88,204,2,0.10), transparent 24%),radial-gradient(circle at 80% 10%, rgba(255,216,74,0.10), transparent 22%),repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0, rgba(255,255,255,0.018) 2px, transparent 2px, transparent 44px),linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);color:var(--text);position:relative;overflow-x:hidden}.starfield-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;opacity:.8;z-index:0}
+.app-shell{min-height:100vh;background:radial-gradient(circle at top left, rgba(88,204,2,0.10), transparent 24%),radial-gradient(circle at 80% 10%, rgba(255,216,74,0.10), transparent 22%),repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0, rgba(255,255,255,0.018) 2px, transparent 2px, transparent 44px),linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);color:var(--text);position:relative;overflow-x:hidden}.starfield-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;opacity:.85;z-index:0}.starfield-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;opacity:.8;z-index:0}
 .background-orb{position:fixed;border-radius:999px;filter:blur(80px);opacity:.25;pointer-events:none}.orb-one{width:340px;height:340px;background:var(--lime);top:-100px;left:-80px}.orb-two{width:280px;height:280px;background:var(--sun);right:-80px;top:160px}.modal-backdrop{position:fixed;inset:0;background:rgba(4,10,8,.62);display:grid;place-items:center;padding:24px;z-index:10;overflow-y:auto}.auth-modal{width:min(520px,100%);max-height:min(88vh,960px);overflow-y:auto;overscroll-behavior:contain;background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);border-radius:28px;padding:26px;position:relative;scrollbar-gutter:stable}.auth-modal::-webkit-scrollbar{width:10px}.auth-modal::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:999px}.auth-modal::-webkit-scrollbar-track{background:transparent}.dashboard-modal{width:min(920px,100%)}.dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:16px}.dashboard-card{margin-top:0}.history-stack{display:grid;gap:16px;margin-top:16px}.history-card p{color:var(--muted);line-height:1.7}.history-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.history-head small{display:block;color:var(--muted);margin-top:4px}.history-meta{display:flex;gap:10px;flex-wrap:wrap}.history-meta span{background:var(--panel-3);padding:8px 10px;border-radius:999px;color:var(--text);font-size:12px;font-weight:800}.auth-form{display:grid;gap:12px;margin-top:16px}.auth-modal h2{margin:10px 0 12px;font-size:36px;font-family:'Schoolbell',cursive}.modal-close{position:absolute;top:14px;right:14px;width:40px;height:40px;border-radius:999px;border:0;background:var(--panel-3);color:var(--text);font-size:22px;cursor:pointer}.secondary-cta{background:var(--sun);border-bottom-color:#c9950c;color:#1d241d}
 .page-frame{width:min(1240px,calc(100% - 32px));margin:0 auto;padding:28px 0 72px;position:relative;z-index:1}.topbar,.hero-panel,.grid,.level-grid,.tabs,.toggle-row,.hero-stats,.pill-row,.brand-wrap,.flashcard-nav,.slide-shell,.progress-dots,.quiz-question-head,.topbar-actions{display:flex;gap:16px}.topbar,.hero-panel,.toggle-row,.slide-shell,.flashcard-nav,.quiz-question-head,.topbar-actions{align-items:center}.topbar,.hero-panel{justify-content:space-between}.grid,.level-grid,.topic-grid,.bullet-stack,.quiz-options,.quiz-list,.learning-modes,.teachback-grid{display:grid}.hero-panel,.lesson-stack{margin-top:22px}
 .brand-chip,.theme-toggle,.auth-button,.panel,.level-card,.topic-chip,.stat-card,.library-card,.bullet-card,.error-banner,.snapshot-card,.explanation-card,.question-box,.coach-response,.mode-card,.slide-card,.flashcard,.quiz-question,.insight-panel,.auth-modal{border:2px solid var(--line);box-shadow:var(--shadow)}
