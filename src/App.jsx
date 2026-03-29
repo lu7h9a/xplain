@@ -397,16 +397,29 @@ export default function App() {
     if (!sessionId || !lesson) return;
     setFeedbackLoading(true);
     const localAnalysis = analyzeTeachBack(lesson, learnerExplanation, confusionArea, interest, slowQuestions, activeLevel);
+    const teachBackSignals = {
+      ...buildPerformanceSignals(),
+      missedConcepts: localAnalysis.missedConcepts,
+      overlapScore: localAnalysis.overlapScore,
+      slowPrompts: localAnalysis.slowPrompts,
+    };
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ sessionId, remoteSessionId, understood, learnerExplanation, confusionArea, performanceSignals: buildPerformanceSignals() }),
+        body: JSON.stringify({ sessionId, remoteSessionId, understood, learnerExplanation, confusionArea, performanceSignals: teachBackSignals }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unable to save feedback");
-      setFeedback({ ...data, ...localAnalysis });
+      setFeedback({
+        ...localAnalysis,
+        ...data,
+        strongPoints: data.strongPoints?.length ? data.strongPoints : localAnalysis.strongPoints,
+        missedConcepts: data.missedConcepts?.length ? data.missedConcepts : localAnalysis.missedConcepts,
+        reteachSteps: data.reteachSteps?.length ? data.reteachSteps : localAnalysis.reteachSteps,
+        questionBank: data.questionBank?.length ? data.questionBank : localAnalysis.questionBank,
+      });
       setLessonPhase("teachback");
     } catch {
       setFeedback(createLocalFeedback({ understood, learnerExplanation, confusionArea, lesson, interest, slowQuestions, activeLevel }));
@@ -781,7 +794,7 @@ export default function App() {
                     <span className="eyebrow">{quizPerfect ? uiCopy.masteryReady : uiCopy.revisitBeforeTeachBack}</span>
                     <p>{quizPerfect ? uiCopy.quizPerfectBody : uiCopy.quizRetryBody}</p>
                     <div className="action-row">
-                      {quizPerfect ? <button className="cta-button" onClick={() => setLessonPhase("teachback")}>{uiCopy.proceedToTeachBack}</button> : null}
+                      <button className="cta-button" onClick={() => setLessonPhase("teachback")}>{uiCopy.proceedToTeachBack}</button>
                       {quizNeedsRevision ? <button type="button" className="mini-button secondary-button" onClick={() => void handleRefreshQuiz()}>{uiCopy.retryWithFreshQuiz}</button> : null}
                       {quizNeedsRevision ? <button className="mini-button secondary-button" onClick={() => setLessonPhase("flashcards")}>{uiCopy.reviewWithFlashcards}</button> : null}
                       {quizNeedsRevision ? <button className="mini-button secondary-button" onClick={() => void handleReteachDifferent()}>{uiCopy.reteachDifferently}</button> : null}
@@ -809,6 +822,7 @@ export default function App() {
                 ) : null}
                 <div className="action-row">
                   <button type="button" className="cta-button" onClick={() => void openQuizMode()}>{uiCopy.continueToQuiz}</button>
+                  <button type="button" className="mini-button secondary-button" onClick={() => setLessonPhase("teachback")}>{uiCopy.proceedToTeachBack}</button>
                   <button type="button" className="mini-button secondary-button" onClick={() => void handleRefreshFlashcards()}>{uiCopy.refreshFlashcards}</button>
                   <button className="mini-button secondary-button" onClick={() => setLessonPhase("explanation")}>{uiCopy.backToExplanation}</button>
                 </div>

@@ -230,7 +230,7 @@ app.post("/api/explain", async (req, res) => {
   });
 });
 
-app.post("/api/feedback", (req, res) => {
+app.post("/api/feedback", async (req, res) => {
   const { sessionId, understood = false, learnerExplanation = "", confusionArea = "", performanceSignals = {} } = req.body || {};
   const session = db.prepare("SELECT * FROM learning_sessions WHERE id = ?").get(sessionId);
 
@@ -239,15 +239,31 @@ app.post("/api/feedback", (req, res) => {
   }
 
   const lesson = JSON.parse(session.lesson_payload);
-  const comparisonText = `${lesson.topic.summary} ${lesson.topic.coreIdea} ${lesson.topic.howItWorks}`;
-  const overlapScore = scoreExplanation(learnerExplanation, comparisonText);
-  const coachingResponse = buildCoachingResponse({
+  const authUser = buildAuthUser(req.user);
+  const historyContext = authUser?.uid ? await getUserLearningContext(authUser.uid) : null;
+  const localFeedback = buildLocalTeachbackFeedback({
+    lesson,
     understood,
     learnerExplanation,
     confusionArea,
-    overlapScore,
-    lesson,
+    performanceSignals,
   });
+  const aiFeedback = await generateTeachbackFeedback({
+    lesson,
+    understood,
+    learnerExplanation,
+    confusionArea,
+    performanceSignals,
+    historyContext,
+  }).catch(() => null);
+  const finalFeedback = {
+    ...localFeedback,
+    ...(aiFeedback || {}),
+    strongPoints: aiFeedback?.strongPoints?.length ? aiFeedback.strongPoints : localFeedback.strongPoints,
+    missedConcepts: aiFeedback?.missedConcepts?.length ? aiFeedback.missedConcepts : localFeedback.missedConcepts,
+    reteachSteps: aiFeedback?.reteachSteps?.length ? aiFeedback.reteachSteps : localFeedback.reteachSteps,
+    questionBank: aiFeedback?.questionBank?.length ? aiFeedback.questionBank : localFeedback.questionBank,
+  };
 
   db.prepare(`
     INSERT INTO understanding_checks (
@@ -258,12 +274,12 @@ app.post("/api/feedback", (req, res) => {
     understood ? 1 : 0,
     learnerExplanation.trim() || null,
     confusionArea.trim() || null,
-    overlapScore,
-    coachingResponse
+    finalFeedback.overlapScore,
+    finalFeedback.coachingResponse
   );
 
   void recordLearningEvent({
-    user: buildAuthUser(req.user),
+    user: authUser,
     learnerName: lesson.learnerSnapshot?.learnerName || null,
     lessonSessionId: req.body.remoteSessionId || null,
     eventType: "teachback_submitted",
@@ -278,21 +294,123 @@ app.post("/api/feedback", (req, res) => {
     language: lesson.learnerSnapshot?.language || "English",
     slowQuestions: performanceSignals?.slowQuestions || [],
     wrongQuestions: performanceSignals?.wrongQuestions || [],
-    missedConcepts: performanceSignals?.missedConcepts || [],
+    missedConcepts: finalFeedback.missedConcepts || performanceSignals?.missedConcepts || [],
     confusionArea,
-    overlapScore,
+    overlapScore: finalFeedback.overlapScore,
     quizScore: performanceSignals?.quizScore ?? null,
     totalQuestions: performanceSignals?.totalQuestions ?? null,
     learnerExplanation,
-    feedbackAction: understood ? "advance" : "reteach",
+    feedbackAction: finalFeedback.nextAction,
+    notes: finalFeedback.coachingResponse,
   });
 
-  return res.json({
-    overlapScore,
-    coachingResponse,
-    nextAction: understood ? "advance" : "reteach",
-  });
+  return res.json(finalFeedback);
 });
+
+async function generateTeachbackFeedback({ lesson, understood, learnerExplanation, confusionArea, performanceSignals, historyContext }) {
+  if (groqApiKey) {
+    return requestGroqLessonJson(buildTeachbackFeedbackPrompt({ lesson, understood, learnerExplanation, confusionArea, performanceSignals, historyContext }));
+  }
+
+  if (geminiApiKey) {
+    return requestGeminiLessonJson(buildTeachbackFeedbackPrompt({ lesson, understood, learnerExplanation, confusionArea, performanceSignals, historyContext }));
+  }
+
+  return buildLocalTeachbackFeedback({ lesson, understood, learnerExplanation, confusionArea, performanceSignals });
+}
+
+function buildTeachbackFeedbackPrompt({ lesson, understood, learnerExplanation, confusionArea, performanceSignals, historyContext }) {
+  return `
+You are Eggzy, an adaptive AI teacher. Return only valid JSON.
+
+Analyze this learner teach-back and decide what they still need to learn.
+
+Lesson topic: ${lesson?.topic?.title || "Unknown topic"}
+Learner level: ${lesson?.learnerSnapshot?.learnerLevel || "beginner"}
+Learner mood: ${lesson?.learnerSnapshot?.mood || "focused"}
+Learner language: ${lesson?.learnerSnapshot?.language || "English"}
+Learner interest: ${lesson?.learnerSnapshot?.interest || "general"}
+Learner says they understood: ${understood ? "yes" : "no"}
+Confusion area: ${confusionArea || "none"}
+
+Lesson summary:
+${lesson?.topic?.summary || ""}
+
+Core explanation:
+${lesson?.topic?.coreIdea || ""}
+${lesson?.topic?.howItWorks || ""}
+
+Teach-back paragraph:
+${learnerExplanation || "none"}
+
+Performance signals:
+${formatPerformanceSignals(performanceSignals)}
+
+Prior learner history:
+${formatHistoryContext(historyContext)}
+
+Return JSON with exactly these keys:
+{
+  "overlapScore": number between 0 and 1,
+  "coachingResponse": string,
+  "nextAction": "advance" or "reteach",
+  "strongPoints": string[],
+  "missedConcepts": string[],
+  "reteachSteps": string[],
+  "questionBank": string[]
+}
+
+Rules:
+- Use the learner explanation and performance signals to identify what is missing.
+- Generate 3 to 5 strong points, 3 to 5 missed concepts, 3 to 5 reteach steps, and 4 to 6 question-bank prompts.
+- The question bank should focus on what the learner still needs to learn, not generic revision.
+- The coaching response should clearly tell the learner what they did well, what they missed, and what to focus on next.
+- If the learner is weak, set nextAction to "reteach" and emphasize the missing parts that should be highlighted in the next explanation.
+- If the learner is strong, set nextAction to "advance" but still note any small gaps.
+- Keep everything in ${lesson?.learnerSnapshot?.language || "English"}.
+`;
+}
+
+function buildLocalTeachbackFeedback({ lesson, understood, learnerExplanation, confusionArea, performanceSignals = {} }) {
+  const referenceText = `${lesson?.topic?.summary || ""} ${lesson?.topic?.coreIdea || ""} ${lesson?.topic?.howItWorks || ""}`;
+  const overlapScore = scoreExplanation(learnerExplanation, referenceText);
+  const learnerTokens = new Set(tokenize(learnerExplanation));
+  const conceptPool = [lesson?.topic?.title, lesson?.topic?.foundation, lesson?.topic?.coreIdea, lesson?.topic?.howItWorks, ...(lesson?.checkInQuestions || [])]
+    .filter(Boolean)
+    .join(" ");
+  const keywords = [...new Set(tokenize(conceptPool))].slice(0, 18);
+  const strongPoints = keywords.filter((token) => learnerTokens.has(token)).slice(0, 4).map(capitalizeWord);
+  const missedConcepts = [
+    ...(performanceSignals?.missedConcepts || []),
+    ...keywords.filter((token) => !learnerTokens.has(token)).slice(0, 4).map(capitalizeWord),
+  ].filter((item, index, array) => item && array.indexOf(item) === index).slice(0, 5);
+  const slowPrompts = (performanceSignals?.slowQuestions || []).map((item) => item?.prompt || item).filter(Boolean);
+  const wrongPrompts = (performanceSignals?.wrongQuestions || []).map((item) => item?.prompt || item).filter(Boolean);
+  const reteachSteps = [
+    confusionArea ? `Re-explain ${confusionArea} in simpler language before moving on.` : `Restart from the core purpose of ${lesson?.topic?.title || "the topic"}.`,
+    missedConcepts[0] ? `Make sure the next explanation clearly covers ${missedConcepts[0]}.` : `Add the missing mechanism and why it matters.`,
+    slowPrompts[0] ? `Spend extra time on this tricky question idea: ${slowPrompts[0]}` : `Use one worked example before returning to the quiz.`,
+  ].filter(Boolean);
+  const questionBank = [
+    confusionArea ? `Explain ${confusionArea} in your own words.` : `What is the main purpose of ${lesson?.topic?.title || "this topic"}?`,
+    missedConcepts[0] ? `Where does ${missedConcepts[0]} fit into ${lesson?.topic?.title || "this topic"}?` : `How does the core process of ${lesson?.topic?.title || "this topic"} work?`,
+    wrongPrompts[0] ? `Retry this idea carefully: ${wrongPrompts[0]}` : `What real-life example best shows ${lesson?.topic?.title || "this topic"}?`,
+    slowPrompts[0] ? `Why was this question difficult: ${slowPrompts[0]}` : `What would you teach first to a beginner?`,
+  ].filter(Boolean);
+  return {
+    overlapScore,
+    coachingResponse: buildCoachingResponse({ understood, learnerExplanation, confusionArea, overlapScore, lesson }),
+    nextAction: understood && overlapScore >= 0.35 && missedConcepts.length <= 2 ? "advance" : "reteach",
+    strongPoints,
+    missedConcepts,
+    reteachSteps,
+    questionBank,
+  };
+}
+
+function capitalizeWord(word) {
+  return String(word || "").charAt(0).toUpperCase() + String(word || "").slice(1);
+}
 
 export { app };
 
