@@ -1051,23 +1051,81 @@ function mergeTopicDetails(shallowTopics) {
   return shallowTopics.map((topic) => DEFAULT_TOPICS.find((item) => item.slug === topic.slug) || topic);
 }
 
-function enrichLesson(lesson, interest, learnerName = "") {
-  const requestedFlashcards = lesson?.requestedCounts?.flashcards || 5;
-  const requestedQuizQuestions = lesson?.requestedCounts?.quizQuestions || 4;
-  const name = learnerName.trim();
-  const levelStages = personalizeLevelStages(lesson.levelStages || buildLevelStageDecks(lesson, interest), name);
-  const learnerLevel = lesson?.learnerSnapshot?.level || "beginner";
+function normalizeLessonPayload(lesson) {
+  const safeLesson = lesson || {};
+  const topic = safeLesson.topic || {};
+  const learnerSnapshot = safeLesson.learnerSnapshot || {};
+  const learningModes = safeLesson.learningModes || {};
+  const levelExplanations = safeLesson.levelExplanations || {};
+  const stages = Array.isArray(safeLesson.stages) ? safeLesson.stages.filter(Boolean) : [];
+  const checkInQuestions = Array.isArray(safeLesson.checkInQuestions) ? safeLesson.checkInQuestions.filter(Boolean) : [];
+  const flashcards = Array.isArray(safeLesson.flashcards) ? safeLesson.flashcards.filter(Boolean) : [];
+  const quizQuestions = Array.isArray(safeLesson.quizQuestions) ? safeLesson.quizQuestions.filter(Boolean) : [];
 
   return {
-    ...lesson,
+    ...safeLesson,
+    topic: {
+      slug: topic.slug || null,
+      title: topic.title || "Untitled topic",
+      category: topic.category || "General",
+      shortSummary: topic.shortSummary || `A guided explanation for ${topic.title || "this topic"}.`,
+      foundation: topic.foundation || "",
+      coreIdea: topic.coreIdea || "",
+      howItWorks: topic.howItWorks || "",
+      realWorldExample: topic.realWorldExample || "",
+      summary: topic.summary || "",
+    },
+    learnerSnapshot: {
+      level: learnerSnapshot.level || "beginner",
+      mood: learnerSnapshot.mood || "focused",
+      preferredStyle: learnerSnapshot.preferredStyle || "analogy",
+      interest: learnerSnapshot.interest || "",
+      language: learnerSnapshot.language || "English",
+      learnerName: learnerSnapshot.learnerName || "",
+    },
+    learningModes: {
+      analogy: learningModes.analogy || "",
+      stepByStep: learningModes.stepByStep || "",
+      realLife: learningModes.realLife || "",
+    },
+    levelExplanations: {
+      child: levelExplanations.child || "",
+      beginner: levelExplanations.beginner || "",
+      expert: levelExplanations.expert || "",
+    },
+    stages,
+    checkInQuestions,
+    flashcards: flashcards.map((card, index) => ({
+      front: card.front || `Key idea ${index + 1}`,
+      back: card.back || "",
+    })),
+    quizQuestions: quizQuestions.map((item, index) => ({
+      id: item.id || `q-${index + 1}`,
+      prompt: item.prompt || `Question ${index + 1}`,
+      options: Array.isArray(item.options) && item.options.length ? item.options : ["Option 1", "Option 2", "Option 3", "Option 4"],
+      correctAnswer: Number.isInteger(item.correctAnswer) ? item.correctAnswer : 0,
+      hint: item.hint || "",
+    })),
+  };
+}
+function enrichLesson(lesson, interest, learnerName = "") {
+  const baseLesson = normalizeLessonPayload(lesson);
+  const requestedFlashcards = baseLesson?.requestedCounts?.flashcards || 5;
+  const requestedQuizQuestions = baseLesson?.requestedCounts?.quizQuestions || 4;
+  const name = learnerName.trim();
+  const levelStages = personalizeLevelStages(baseLesson.levelStages || buildLevelStageDecks(baseLesson, interest), name);
+  const learnerLevel = baseLesson?.learnerSnapshot?.level || "beginner";
+
+  return {
+    ...baseLesson,
     requestedCounts: { flashcards: requestedFlashcards, quizQuestions: requestedQuizQuestions },
-    learnerSnapshot: { ...(lesson.learnerSnapshot || {}), learnerName: name || lesson?.learnerSnapshot?.learnerName || "" },
-    learningModes: personalizeNarratives(lesson.learningModes || {}, name),
-    levelExplanations: personalizeNarratives(lesson.levelExplanations || {}, name),
+    learnerSnapshot: { ...(baseLesson.learnerSnapshot || {}), learnerName: name || baseLesson?.learnerSnapshot?.learnerName || "" },
+    learningModes: personalizeNarratives(baseLesson.learningModes || {}, name),
+    levelExplanations: personalizeNarratives(baseLesson.levelExplanations || {}, name),
     levelStages,
-    stages: levelStages[learnerLevel] || personalizeStages(lesson.stages || [], name),
-    flashcards: lesson.flashcards?.length ? lesson.flashcards : buildFlashcards({ ...lesson, levelStages }, requestedFlashcards),
-    quizQuestions: lesson.quizQuestions?.length ? lesson.quizQuestions : buildQuizQuestions(lesson, interest, requestedQuizQuestions),
+    stages: levelStages[learnerLevel] || personalizeStages(baseLesson.stages || [], name),
+    flashcards: baseLesson.flashcards?.length ? baseLesson.flashcards : buildFlashcards({ ...baseLesson, levelStages }, requestedFlashcards),
+    quizQuestions: baseLesson.quizQuestions?.length ? baseLesson.quizQuestions : buildQuizQuestions(baseLesson, interest, requestedQuizQuestions),
   };
 }
 
